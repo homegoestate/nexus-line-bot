@@ -2,8 +2,8 @@ name: Monthly Real Estate Data Sync
 
 on:
   schedule:
-    - cron: '0 0 1,15 * *' # 每月 1 號與 15 號自動執行
-  workflow_dispatch:      # 💡 這行就是變出手動按鈕的魔法咒語
+    - cron: '0 0 1,15 * *'
+  workflow_dispatch:      # 💡 確保這行前面只有 2 個空格
 
 jobs:
   run-crawler:
@@ -24,4 +24,4 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: npm run history  # 💡 這裡改成 history，才會跑 5 年資料那支程式
+        run: npm run history
