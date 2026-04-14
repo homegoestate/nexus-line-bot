@@ -9,20 +9,25 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 內政部實價登錄當季完整包 URL (範例)
+// 內政部實價登錄當季完整包 URL
 const MOI_URL = 'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_landcsv.zip';
 
 async function runCrawler() {
   console.log("🚀 [Phase 2] 啟動內政部實價登錄全自動爬蟲...");
 
   try {
-    // 1. 下載 ZIP 壓縮檔
+    // 1. 下載 ZIP 壓縮檔 (💡 加入 User-Agent 偽裝成真人瀏覽器，突破內政部防護)
     console.log("📥 正在從內政部下載最新數據...");
-    const response = await axios.get(MOI_URL, { responseType: 'arraybuffer' });
+    const response = await axios.get(MOI_URL, { 
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    
     const zip = new AdmZip(response.data);
     
     // 2. 尋找台南市的買賣資料 (d_lvr_land_a.csv)
-    // 註：A=台北, B=台中, D=台南, E=高雄 (依照內政部代碼)
     const zipEntries = zip.getEntries();
     const tainanEntry = zipEntries.find(entry => entry.entryName.toLowerCase() === 'd_lvr_land_a.csv');
 
@@ -34,7 +39,6 @@ async function runCrawler() {
     console.log("⚙️ 找到台南資料，正在解析並清洗數據...");
     const csvData = tainanEntry.getData().toString('utf8');
     
-    // 這裡需要將純文字轉成 Stream 給 csv-parser 讀取
     const bufferStream = new stream.PassThrough();
     bufferStream.end(csvData);
 
@@ -43,9 +47,7 @@ async function runCrawler() {
     bufferStream
       .pipe(csv())
       .on('data', (row) => {
-        // 第一列通常是英文標題，若是資料則過濾出有效買賣
         if (row['鄉鎮市區'] && row['鄉鎮市區'] !== 'The villages and towns urban district') {
-          // 將中文標題映射為您的資料庫英文欄位
           parsedData.push({
             address: row['土地位置建物門牌'],
             unit_price_sqm: row['單價元平方公尺'] ? Number(row['單價元平方公尺']) : 0,
@@ -61,7 +63,7 @@ async function runCrawler() {
           console.log("☁️ 正在將資料上傳至 Supabase...");
           const { error } = await supabase
             .from('real_estate_transactions')
-            .insert(parsedData); // 批次寫入
+            .insert(parsedData); 
 
           if (error) {
             console.error("❌ Supabase 寫入失敗:", error);
