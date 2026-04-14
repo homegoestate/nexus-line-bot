@@ -6,31 +6,32 @@ const stream = require('stream');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
+const MOI_HOME_URL = 'https://plvr.land.moi.gov.tw/DownloadOpenData';
 const TARGET_CITIES = { 'a': '台北市', 'f': '新北市', 'h': '桃園市', 'o': '新竹市', 'j': '新竹縣', 'b': '台中市', 'd': '台南市', 'e': '高雄市' };
 const TARGET_TYPES = { 'a': '成屋', 'b': '預售屋', 'c': '租賃' };
 
-// 💡 設定您想回溯的時間範圍 (例如：108年第1季 到 113年第1季)
-const SEASONS = [
-  '108S1', '108S2', '108S3', '108S4',
-  '109S1', '109S2', '109S3', '109S4',
-  '110S1', '110S2', '110S3', '110S4',
-  '111S1', '111S2', '111S3', '111S4',
-  '112S1', '112S2', '112S3', '112S4',
-  '113S1'
-];
+// 先縮短範圍測試，確認台南有資料，成功後您再自行加回 108~112
+const SEASONS = ['111S4', '112S1', '112S2', '112S3', '112S4', '113S1'];
 
 async function fillHistory() {
-  console.log(`🚀 啟動「時光機」模式，準備補齊 ${SEASONS.length} 個季度的歷史資料...`);
+  console.log(`🚀 [時光機 v2.0] 準備補齊歷史資料...`);
 
-  for (const season of SEASONS) {
-    console.log(`\n📅 正在處理：${season} ...`);
-    
-    const url = `https://plvr.land.moi.gov.tw/DownloadSeason?season=${season}&type=zip&fileName=lvr_landcsv.zip`;
-    
-    try {
+  try {
+    // 🔐 拿訪客證 (Cookie)
+    const sessionRes = await axios.get(MOI_HOME_URL, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const cookieString = (sessionRes.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
+
+    for (const season of SEASONS) {
+      console.log(`\n📅 正在搬運：${season} 的資料...`);
+      const url = `https://plvr.land.moi.gov.tw/DownloadSeason?season=${season}&type=zip&fileName=lvr_landcsv.zip`;
+      
       const res = await axios.get(url, { 
         responseType: 'arraybuffer',
-        headers: { 'User-Agent': 'Mozilla/5.0' },
+        headers: { 
+          'User-Agent': 'Mozilla/5.0',
+          'Cookie': cookieString,
+          'Referer': MOI_HOME_URL
+        },
         timeout: 60000 
       });
 
@@ -61,25 +62,20 @@ async function fillHistory() {
               }
             }).on('end', async () => {
               if (parsedData.length > 0) {
-                // 分批寫入，避免一次太多塞車
-                for (let i = 0; i < parsedData.length; i += 1000) {
-                  const chunk = parsedData.slice(i, i + 1000);
-                  await supabase.from('real_estate_transactions').insert(chunk);
-                }
-                console.log(`  ✅ [${cityName}-${typeName}] 匯入完成`);
+                const { error } = await supabase.from('real_estate_transactions').insert(parsedData);
+                if (error) console.log(`  ❌ [${cityName}] 寫入失敗: ${error.message}`);
+                else console.log(`  ✅ [${cityName}-${typeName}] 匯入 ${parsedData.length} 筆`);
               }
               resolve();
             });
           });
         }
       }
-    } catch (err) {
-      console.error(`  ❌ ${season} 下載或匯入失敗: ${err.message}`);
+      await new Promise(r => setTimeout(r, 2000)); // 休息一下
     }
-    // 💡 休息一下，避免被內政部當成攻擊
-    await new Promise(r => setTimeout(r, 3000));
+    console.log("\n🎉 任務結束！歷史資料已補齊！");
+  } catch (err) {
+    console.error("💥 執行失敗:", err.message);
   }
-  console.log("\n🎉 時光機任務結束！歷史資料已全部補齊！");
 }
-
 fillHistory();
