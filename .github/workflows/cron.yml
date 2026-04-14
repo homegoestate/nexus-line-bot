@@ -1,0 +1,30 @@
+name: Monthly Real Estate Data Sync
+
+# 設定鬧鐘：每個月的 15 號凌晨 2 點 (UTC 時間) 自動執行
+on:
+  schedule:
+    - cron: '0 2 15 * *'
+  # 允許我們在 GitHub 網頁上手動點擊執行按鈕 (測試用)
+  workflow_dispatch:
+
+jobs:
+  run-crawler:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 下載專案程式碼
+        uses: actions/checkout@v3
+
+      - name: ⚙️ 安裝 Node.js 環境
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: 📦 安裝爬蟲套件
+        run: npm install
+
+      - name: 🚀 啟動爬蟲程式 (寫入 Supabase)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: npm run sync
