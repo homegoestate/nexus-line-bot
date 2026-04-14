@@ -2,7 +2,6 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 
-// 接收 Vercel 環境變數
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET
@@ -15,7 +14,7 @@ const client = new line.Client(config);
 const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
-app.post('*', line.middleware(config), (req, res) => {
+app.post('/api/webhook', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
@@ -31,23 +30,17 @@ async function handleEvent(event) {
   }
 
   const userText = event.message.text.trim();
-  
-  // 💡 修復一：讓「空白鍵」變成可有可無 (查價國安街 / 查價 國安街 皆可)
   const match = userText.match(/^(?:查價|估價|行情)\s*(.+)$/);
   
   if (match) {
     const addressQuery = match[1].trim(); 
     
     try {
+      // 💡 修復點：改用 select('*') 並移除 ilike 欄位名稱的雙引號
       const { data, error } = await supabase
         .from('real_estate_transactions')
-        .select(`
-          "land sector position building sector house number plate", 
-          "the unit price (NTD / square meter)", 
-          "total price NTD", 
-          "the note"
-        `)
-        .ilike('"land sector position building sector house number plate"', `%${addressQuery}%`);
+        .select('*')
+        .ilike('land sector position building sector house number plate', `%${addressQuery}%`);
 
       if (error) throw error;
 
@@ -69,23 +62,24 @@ async function handleEvent(event) {
         });
       }
 
+      // 如果完全沒有有效資料，才傳送橘色備用卡片
       if (validData.length === 0) {
         return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount);
       }
 
+      // 演算法計算
       const avgSqmPrice = totalSqmPrice / validData.length;
       const avgPingPrice = ((avgSqmPrice * 3.305785) / 10000).toFixed(1); 
-
       const assumedPing = 35;
       const estimatedTotalPrice = Math.round(avgPingPrice * assumedPing); 
       const ltv = 0.8; 
       const estimatedLoan = Math.round(estimatedTotalPrice * ltv);
       const downPayment = estimatedTotalPrice - estimatedLoan;
-      
       const pmtPerMillion = 0.38; 
       const estimatedMonthlyPayment = (estimatedLoan / 100) * pmtPerMillion;
       const requiredIncome = (estimatedMonthlyPayment / 0.6).toFixed(1);
 
+      // 深藍色成功卡片
       const flexMessage = {
         type: 'flex',
         altText: `【智能鑑價報告】${addressQuery}`,
@@ -96,7 +90,7 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v3.1", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v3.2", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
@@ -166,7 +160,6 @@ async function handleEvent(event) {
             contents: [
               {
                 type: "button", style: "primary", color: "#4F46E5",
-                // 💡 修復二：換成絕對合法的純網址，避免 LINE 拒絕發送
                 action: { type: "uri", label: "💬 條件符合？洽詢專屬低利專案", uri: "https://line.me/R/" }
               },
               { type: "text", text: "※ 試算結果由專屬資料庫即時演算，實際需依銀行審核為準。", size: "xxs", color: "#94a3b8", wrap: true, margin: "md" }
@@ -175,15 +168,13 @@ async function handleEvent(event) {
         }
       };
 
-      // 💡 修復三：加入終極錯誤捕捉！如果卡片壞了，機器人至少會回傳純文字
       return client.replyMessage(event.replyToken, flexMessage).catch(err => {
-        console.error("Flex 卡片格式錯誤:", err);
-        return client.replyMessage(event.replyToken, { type: 'text', text: `鑑價完成！\n標的：${addressQuery}\n預估均價：${avgPingPrice} 萬/坪\n\n(註：卡片圖形產生失敗，請聯繫工程師)` });
+        console.error("Flex 卡片發送失敗:", err);
       });
 
     } catch (error) {
-      console.error("資料庫連線錯誤:", error);
-      return client.replyMessage(event.replyToken, { type: 'text', text: '資料庫連線中斷，或該區域無資料。' });
+      console.error("資料庫查詢失敗:", error);
+      return client.replyMessage(event.replyToken, { type: 'text', text: '系統查詢發生錯誤。' });
     }
   }
 
@@ -223,9 +214,7 @@ function sendFallbackCard(replyToken, address, totalFound, specialCount) {
     }
   };
   
-  return client.replyMessage(replyToken, fallbackMsg).catch(err => {
-      return client.replyMessage(replyToken, { type: 'text', text: msg });
-  });
+  return client.replyMessage(replyToken, fallbackMsg);
 }
 
 module.exports = app;
