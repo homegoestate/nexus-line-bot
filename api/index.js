@@ -31,24 +31,25 @@ async function handleEvent(event) {
 
   const userText = event.message.text.trim();
   
-  // 💡 升級版語意分析：聽得懂「縣市」和「類型」了！
-  const match = userText.match(/^(?:查價|估價|行情)\s*(?:(台北市|新北市|桃園市|新竹市|新竹縣|台中市|台南市|高雄市)\s*)?(?:(成屋|預售屋|租賃)\s*)?(.+)$/);
+  // 💡 升級版語意分析：完美支援「台」與「臺」混用
+  const match = userText.match(/^(?:查價|估價|行情)\s*(?:([台臺]北市|新北市|桃園市|新竹市|新竹縣|[台臺]中市|[台臺]南市|高雄市)\s*)?(?:(成屋|預售屋|租賃)\s*)?(.+)$/);
   
   if (match) {
-    const queryCity = match[1]; // 可能沒有輸入
-    const queryType = match[2]; // 可能沒有輸入
+    let queryCity = match[1]; 
+    const queryType = match[2]; 
     const addressQuery = match[3].trim(); 
     
+    // 將使用者輸入的「臺」統整為「台」，對齊我們在爬蟲定義的名稱
+    if (queryCity) queryCity = queryCity.replace(/臺/g, '台');
+    
     try {
-      // 動態組合資料庫查詢
       let dbQuery = supabase.from('real_estate_transactions').select('*');
       if (queryCity) dbQuery = dbQuery.eq('city', queryCity);
       if (queryType) dbQuery = dbQuery.eq('transaction_type', queryType);
       
-      // 💡 解決「台」與「臺」的文字差異問題
-      const safeAddress = addressQuery.replace(/台/g, '臺');
-      const safeAddress2 = addressQuery.replace(/臺/g, '台');
-      dbQuery = dbQuery.or(`address.ilike.%${safeAddress}%,address.ilike.%${safeAddress2}%`);
+      // 💡 終極防呆：用 SQL 萬用字元 `_` 代替台/臺，徹底避開 Bug
+      const sqlAddress = addressQuery.replace(/[台臺]/g, '_');
+      dbQuery = dbQuery.ilike('address', `%${sqlAddress}%`);
 
       const { data, error } = await dbQuery;
       if (error) throw error;
@@ -66,7 +67,7 @@ async function handleEvent(event) {
           if (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊')) {
             specialCount++;
           } else if (!price || price === 0) {
-            zeroPriceCount++; // 紀錄這些 0 元廢資料
+            zeroPriceCount++; // 精準紀錄 0 元廢資料
           } else {
             validData.push(row);
             totalSqmPrice += Number(price);
@@ -102,7 +103,7 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v4.0", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v4.1", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
