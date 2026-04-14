@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node api/index.js",
     "sync": "node scripts/sync.js"
+    "history": "node scripts/history_filler.js"
   },
   "dependencies": {
     "@line/bot-sdk": "^8.0.0",
