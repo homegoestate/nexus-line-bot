@@ -2,27 +2,26 @@ name: Monthly Real Estate Data Sync
 
 on:
   schedule:
-    - cron: '0 2 15 * *'
-  workflow_dispatch:
+    - cron: '0 0 1,15 * *' # 每月 1 號與 15 號自動執行
+  workflow_dispatch:      # 💡 這行就是變出手動按鈕的魔法咒語
 
 jobs:
   run-crawler:
     runs-on: ubuntu-latest
-
     steps:
       - name: 📥 下載專案程式碼
-        uses: actions/checkout@v4  # 💡 這裡升級成 v4
+        uses: actions/checkout@v3
 
-      - name: ⚙️ 安裝 Node.js 環境
-        uses: actions/setup-node@v4 # 💡 這裡升級成 v4
+      - name: 🛠️ 安裝 Node.js 環境
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
 
       - name: 📦 安裝爬蟲套件
         run: npm install
 
-      - name: 🚀 啟動爬蟲程式 (寫入 Supabase)
+      - name: 🚀 啟動「時光機」補齊歷史資料
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: npm run sync
+        run: npm run history  # 💡 這裡改成 history，才會跑 5 年資料那支程式
