@@ -31,7 +31,6 @@ async function handleEvent(event) {
 
   const userText = event.message.text.trim();
   
-  // 💡 升級版語意分析：完美支援「台」與「臺」混用
   const match = userText.match(/^(?:查價|估價|行情)\s*(?:([台臺]北市|新北市|桃園市|新竹市|新竹縣|[台臺]中市|[台臺]南市|高雄市)\s*)?(?:(成屋|預售屋|租賃)\s*)?(.+)$/);
   
   if (match) {
@@ -39,7 +38,6 @@ async function handleEvent(event) {
     const queryType = match[2]; 
     const addressQuery = match[3].trim(); 
     
-    // 將使用者輸入的「臺」統整為「台」，對齊我們在爬蟲定義的名稱
     if (queryCity) queryCity = queryCity.replace(/臺/g, '台');
     
     try {
@@ -47,7 +45,6 @@ async function handleEvent(event) {
       if (queryCity) dbQuery = dbQuery.eq('city', queryCity);
       if (queryType) dbQuery = dbQuery.eq('transaction_type', queryType);
       
-      // 💡 終極防呆：用 SQL 萬用字元 `_` 代替台/臺，徹底避開 Bug
       const sqlAddress = addressQuery.replace(/[台臺]/g, '_');
       dbQuery = dbQuery.ilike('address', `%${sqlAddress}%`);
 
@@ -67,7 +64,7 @@ async function handleEvent(event) {
           if (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊')) {
             specialCount++;
           } else if (!price || price === 0) {
-            zeroPriceCount++; // 精準紀錄 0 元廢資料
+            zeroPriceCount++;
           } else {
             validData.push(row);
             totalSqmPrice += Number(price);
@@ -79,7 +76,6 @@ async function handleEvent(event) {
         return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount, zeroPriceCount, queryCity, queryType);
       }
 
-      // 演算法計算
       const avgSqmPrice = totalSqmPrice / validData.length;
       const avgPingPrice = ((avgSqmPrice * 3.305785) / 10000).toFixed(1); 
       const assumedPing = 35;
@@ -103,7 +99,7 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v4.1", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v4.2", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
@@ -183,7 +179,9 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, flexMessage);
 
     } catch (error) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: '系統大腦升級中，請稍後再試。' });
+      // 💡 抓蟲雷達：把真實的錯誤原因直接傳回 LINE 給我們看！
+      const errorStr = error.message || JSON.stringify(error) || "未知錯誤";
+      return client.replyMessage(event.replyToken, { type: 'text', text: `💥 系統除錯模式：\n${errorStr}` });
     }
   }
 
