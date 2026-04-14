@@ -36,11 +36,11 @@ async function handleEvent(event) {
     const addressQuery = match[1].trim(); 
     
     try {
-      // 💡 修復點：改用 select('*') 並移除 ilike 欄位名稱的雙引號
+      // 💡 修正一：對齊您的資料庫，使用正確的 'address' 欄位名稱
       const { data, error } = await supabase
         .from('real_estate_transactions')
         .select('*')
-        .ilike('land sector position building sector house number plate', `%${addressQuery}%`);
+        .ilike('address', `%${addressQuery}%`);
 
       if (error) throw error;
 
@@ -50,8 +50,9 @@ async function handleEvent(event) {
 
       if (data && data.length > 0) {
         data.forEach(row => {
-          const notes = row['the note'];
-          const price = row['the unit price (NTD / square meter)'];
+          // 💡 修正二：對齊您的資料庫，使用正確的 'notes' 和 'unit_price_sqm'
+          const notes = row['notes'];
+          const price = row['unit_price_sqm'];
           
           if (notes && (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊'))) {
             specialCount++;
@@ -62,7 +63,6 @@ async function handleEvent(event) {
         });
       }
 
-      // 如果完全沒有有效資料，才傳送橘色備用卡片
       if (validData.length === 0) {
         return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount);
       }
@@ -90,7 +90,7 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v3.2", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v3.3", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
@@ -174,7 +174,7 @@ async function handleEvent(event) {
 
     } catch (error) {
       console.error("資料庫查詢失敗:", error);
-      return client.replyMessage(event.replyToken, { type: 'text', text: '系統查詢發生錯誤。' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '資料庫查詢失敗，請聯繫管理員。' });
     }
   }
 
