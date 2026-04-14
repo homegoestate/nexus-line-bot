@@ -30,33 +30,44 @@ async function handleEvent(event) {
   }
 
   const userText = event.message.text.trim();
-  const match = userText.match(/^(?:查價|估價|行情)\s*(.+)$/);
+  
+  // 💡 升級版語意分析：聽得懂「縣市」和「類型」了！
+  const match = userText.match(/^(?:查價|估價|行情)\s*(?:(台北市|新北市|桃園市|新竹市|新竹縣|台中市|台南市|高雄市)\s*)?(?:(成屋|預售屋|租賃)\s*)?(.+)$/);
   
   if (match) {
-    const addressQuery = match[1].trim(); 
+    const queryCity = match[1]; // 可能沒有輸入
+    const queryType = match[2]; // 可能沒有輸入
+    const addressQuery = match[3].trim(); 
     
     try {
-      // 💡 修正一：對齊您的資料庫，使用正確的 'address' 欄位名稱
-      const { data, error } = await supabase
-        .from('real_estate_transactions')
-        .select('*')
-        .ilike('address', `%${addressQuery}%`);
+      // 動態組合資料庫查詢
+      let dbQuery = supabase.from('real_estate_transactions').select('*');
+      if (queryCity) dbQuery = dbQuery.eq('city', queryCity);
+      if (queryType) dbQuery = dbQuery.eq('transaction_type', queryType);
+      
+      // 💡 解決「台」與「臺」的文字差異問題
+      const safeAddress = addressQuery.replace(/台/g, '臺');
+      const safeAddress2 = addressQuery.replace(/臺/g, '台');
+      dbQuery = dbQuery.or(`address.ilike.%${safeAddress}%,address.ilike.%${safeAddress2}%`);
 
+      const { data, error } = await dbQuery;
       if (error) throw error;
 
       let validData = [];
       let specialCount = 0;
+      let zeroPriceCount = 0;
       let totalSqmPrice = 0;
 
       if (data && data.length > 0) {
         data.forEach(row => {
-          // 💡 修正二：對齊您的資料庫，使用正確的 'notes' 和 'unit_price_sqm'
-          const notes = row['notes'];
+          const notes = row['notes'] || '';
           const price = row['unit_price_sqm'];
           
-          if (notes && (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊'))) {
+          if (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊')) {
             specialCount++;
-          } else if (price && price > 0) {
+          } else if (!price || price === 0) {
+            zeroPriceCount++; // 紀錄這些 0 元廢資料
+          } else {
             validData.push(row);
             totalSqmPrice += Number(price);
           }
@@ -64,7 +75,7 @@ async function handleEvent(event) {
       }
 
       if (validData.length === 0) {
-        return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount);
+        return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount, zeroPriceCount, queryCity, queryType);
       }
 
       // 演算法計算
@@ -79,10 +90,11 @@ async function handleEvent(event) {
       const estimatedMonthlyPayment = (estimatedLoan / 100) * pmtPerMillion;
       const requiredIncome = (estimatedMonthlyPayment / 0.6).toFixed(1);
 
-      // 深藍色成功卡片
+      const cardTitle = `${queryCity || '全國'}${queryType || '成屋'}行情`;
+
       const flexMessage = {
         type: 'flex',
-        altText: `【智能鑑價報告】${addressQuery}`,
+        altText: `【鑑價報告】${cardTitle} - ${addressQuery}`,
         contents: {
           type: "bubble",
           size: "mega",
@@ -90,17 +102,17 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v3.3", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v4.0", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
             type: "box", layout: "vertical",
             contents: [
-              { type: "text", text: "📍 查詢標的關鍵字", size: "xs", color: "#64748b", weight: "bold" },
+              { type: "text", text: `📍 查詢標的 (${cardTitle})`, size: "xs", color: "#64748b", weight: "bold" },
               { type: "text", text: addressQuery, weight: "bold", size: "xl", margin: "sm", wrap: true },
               { type: "separator", margin: "lg" },
               
-              { type: "text", text: "📊 官方大數據演算 (台南庫)", size: "sm", color: "#0F172A", weight: "bold", margin: "lg" },
+              { type: "text", text: "📊 官方大數據演算", size: "sm", color: "#0F172A", weight: "bold", margin: "lg" },
               {
                 type: "box", layout: "horizontal", margin: "md",
                 contents: [
@@ -119,7 +131,7 @@ async function handleEvent(event) {
                 type: "box", layout: "horizontal", margin: "sm",
                 contents: [
                   { type: "text", text: "排雷演算", size: "sm", color: "#64748b" },
-                  { type: "text", text: `已過濾 ${specialCount} 筆親友特殊交易`, size: "xs", color: "#EF4444", weight: "bold", align: "end" }
+                  { type: "text", text: `已過濾 ${specialCount+zeroPriceCount} 筆無效/特殊交易`, size: "xs", color: "#EF4444", weight: "bold", align: "end" }
                 ]
               },
               { type: "separator", margin: "lg" },
@@ -161,54 +173,40 @@ async function handleEvent(event) {
               {
                 type: "button", style: "primary", color: "#4F46E5",
                 action: { type: "uri", label: "💬 條件符合？洽詢專屬低利專案", uri: "https://line.me/R/" }
-              },
-              { type: "text", text: "※ 試算結果由專屬資料庫即時演算，實際需依銀行審核為準。", size: "xxs", color: "#94a3b8", wrap: true, margin: "md" }
+              }
             ]
           }
         }
       };
 
-      return client.replyMessage(event.replyToken, flexMessage).catch(err => {
-        console.error("Flex 卡片發送失敗:", err);
-      });
+      return client.replyMessage(event.replyToken, flexMessage);
 
     } catch (error) {
-      console.error("資料庫查詢失敗:", error);
-      return client.replyMessage(event.replyToken, { type: 'text', text: '資料庫查詢失敗，請聯繫管理員。' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '系統大腦升級中，請稍後再試。' });
     }
   }
 
   return Promise.resolve(null);
 }
 
-function sendFallbackCard(replyToken, address, totalFound, specialCount) {
-  const encodedAddr = encodeURIComponent(address);
-  const lejuUrl = `https://www.google.com/search?q=site:leju.com.tw+${encodedAddr}`;
-  const url591 = `https://market.591.com.tw/list?keywords=${encodedAddr}`;
+function sendFallbackCard(replyToken, address, totalFound, specialCount, zeroCount, city, type) {
+  const scope = `${city || '全國'}${type || ''}`;
+  let msg = `在【${scope}】實價庫中找無【${address}】的標準交易。`;
   
-  let msg = `在我們的本地實價庫中找無【${address}】的有效標準交易。`;
-  if (specialCount > 0) msg = `【${address}】近期僅有 ${specialCount} 筆交易，且皆被系統判定為「親友特殊交易」，無法作為銀行鑑價參考。`;
+  if (totalFound > 0) {
+    msg = `【${address}】有 ${totalFound} 筆紀錄，但其中 ${specialCount} 筆為親友特殊交易，${zeroCount} 筆無單價資料(純土地/車位)，無法鑑價。`;
+  }
 
   const fallbackMsg = {
     type: 'flex',
     altText: `查無資料：${address}`,
-    contents: {action: { type: "message", label: "💬 條件符合？洽詢專屬低利專案", text: "我想了解專屬低利專案！" }
+    contents: {
       type: "bubble",
       body: {
         type: "box", layout: "vertical",
         contents: [
-          { type: "text", text: "⚠️ 本地庫查無有效鑑價樣本", weight: "bold", color: "#EA580C" },
-          { type: "text", text: msg, size: "sm", color: "#64748b", wrap: true, margin: "md" },
-          { type: "separator", margin: "lg" },
-          { type: "text", text: "您可以嘗試透過以下外部平台查詢擴充數據：", size: "xs", color: "#94a3b8", margin: "md" },
-          {
-            type: "button", style: "secondary", margin: "md",
-            action: { type: "uri", label: "🔍 樂居 (社區大樓庫)", uri: lejuUrl }
-          },
-          {
-            type: "button", style: "secondary", margin: "sm",
-            action: { type: "uri", label: "🔍 591 實價登錄", uri: url591 }
-          }
+          { type: "text", text: "⚠️ 查無有效鑑價樣本", weight: "bold", color: "#EA580C" },
+          { type: "text", text: msg, size: "sm", color: "#64748b", wrap: true, margin: "md" }
         ]
       }
     }
