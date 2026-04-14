@@ -13,21 +13,33 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const MOI_URL = 'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_landcsv.zip';
 
 async function runCrawler() {
-  console.log("🚀 [Phase 2] 啟動內政部實價登錄全自動爬蟲...");
+  console.log("🚀 [Phase 2] 啟動內政部實價登錄全自動爬蟲 (特務強化版)...");
 
   try {
-    // 1. 下載 ZIP 壓縮檔 (💡 加入 User-Agent 偽裝成真人瀏覽器，突破內政部防護)
     console.log("📥 正在從內政部下載最新數據...");
+    
+    // 💡 強化偽裝：加上完整的瀏覽器語言、來源網站等證明，假裝我們是真人
     const response = await axios.get(MOI_URL, { 
       responseType: 'arraybuffer',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://plvr.land.moi.gov.tw/DownloadOpenData'
+      },
+      timeout: 30000
     });
     
-    const zip = new AdmZip(response.data);
+    let zip;
+    try {
+      zip = new AdmZip(response.data);
+    } catch (zipError) {
+      // 💡 監視器：如果解壓縮失敗，把內政部擋人的網頁內容印出來！
+      const errorHtml = response.data.toString('utf8').substring(0, 800);
+      console.error("\n❌ 內政部沒有給我們 ZIP 檔！它回傳了這個擋人網頁：\n", errorHtml);
+      throw new Error("內政部防火牆阻擋了下載請求");
+    }
     
-    // 2. 尋找台南市的買賣資料 (d_lvr_land_a.csv)
     const zipEntries = zip.getEntries();
     const tainanEntry = zipEntries.find(entry => entry.entryName.toLowerCase() === 'd_lvr_land_a.csv');
 
@@ -35,7 +47,6 @@ async function runCrawler() {
       throw new Error("❌ 找不到台南市的資料檔 (d_lvr_land_a.csv)");
     }
 
-    // 3. 解壓縮並解析 CSV
     console.log("⚙️ 找到台南資料，正在解析並清洗數據...");
     const csvData = tainanEntry.getData().toString('utf8');
     
@@ -58,7 +69,6 @@ async function runCrawler() {
       .on('end', async () => {
         console.log(`✅ 解析完成，共獲得 ${parsedData.length} 筆資料！`);
         
-        // 4. 批次匯入 Supabase
         if (parsedData.length > 0) {
           console.log("☁️ 正在將資料上傳至 Supabase...");
           const { error } = await supabase
@@ -67,6 +77,7 @@ async function runCrawler() {
 
           if (error) {
             console.error("❌ Supabase 寫入失敗:", error);
+            process.exit(1);
           } else {
             console.log("🎉 [大功告成] 本月實價登錄資料庫更新完畢！");
           }
@@ -74,7 +85,9 @@ async function runCrawler() {
       });
 
   } catch (error) {
-    console.error("💥 爬蟲執行發生嚴重錯誤:", error);
+    console.error("\n💥 爬蟲執行發生錯誤:", error.message);
+    // 💡 強制中斷：告訴 GitHub 我們失敗了，讓外面亮起真實的紅燈！
+    process.exit(1); 
   }
 }
 
