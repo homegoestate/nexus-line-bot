@@ -2,22 +2,21 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 
-// ==========================================
-// 🔴 環境變數設定 (請在 Vercel 後台設定)
-// ==========================================
+// 接收 Vercel 環境變數
 const config = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN || '您的_LINE_ACCESS_TOKEN',
-  channelSecret: process.env.CHANNEL_SECRET || '您的_LINE_CHANNEL_SECRET'
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
 };
 
-const supabaseUrl = process.env.SUPABASE_URL || '您的_SUPABASE_URL';
-const supabaseKey = process.env.SUPABASE_KEY || '您的_SUPABASE_KEY';
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
 
 const client = new line.Client(config);
 const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
-app.post('/webhook', line.middleware(config), (req, res) => {
+// 修正路由：統一接收對 /api/webhook 的 POST 請求
+app.post('/api/webhook', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
@@ -27,9 +26,6 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-// ==========================================
-// 🧠 核心處理邏輯 (Nexus Data Engine)
-// ==========================================
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
@@ -39,58 +35,56 @@ async function handleEvent(event) {
   const match = userText.match(/^(?:查價|估價|行情)\s+(.+)$/);
   
   if (match) {
-    const addressQuery = match[1].trim(); // 客戶輸入的地址 (例：國安街)
+    const addressQuery = match[1].trim(); 
     
     try {
-      // 1. 🚀 向 Supabase 資料庫請求真實數據 (使用模糊搜尋)
       const { data, error } = await supabase
         .from('real_estate_transactions')
-        .select('address, unit_price_sqm, total_price, notes')
-        .ilike('address', `%${addressQuery}%`); // 只要地址包含關鍵字就抓出來
+        .select(`
+          "land sector position building sector house number plate", 
+          "the unit price (NTD / square meter)", 
+          "total price NTD", 
+          "the note"
+        `)
+        .ilike('"land sector position building sector house number plate"', `%${addressQuery}%`);
 
       if (error) throw error;
 
-      // 2. 🧹 數據清洗與排雷演算法
       let validData = [];
       let specialCount = 0;
       let totalSqmPrice = 0;
 
       if (data && data.length > 0) {
         data.forEach(row => {
-          // 過濾掉備註中有親友交易、關係人等特殊行情的垃圾數據
-          if (row.notes && (row.notes.includes('親友') || row.notes.includes('關係人') || row.notes.includes('特殊'))) {
+          const notes = row['the note'];
+          const price = row['the unit price (NTD / square meter)'];
+          
+          if (notes && (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊'))) {
             specialCount++;
-          } else if (row.unit_price_sqm && row.unit_price_sqm > 0) {
+          } else if (price && price > 0) {
             validData.push(row);
-            totalSqmPrice += Number(row.unit_price_sqm);
+            totalSqmPrice += Number(price);
           }
         });
       }
 
-      // 3. 🏦 若找不到資料的防呆處理 (回傳基本外連卡片)
       if (validData.length === 0) {
-        return sendFallbackCard(event.replyToken, addressQuery, data.length, specialCount);
+        return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount);
       }
 
-      // 4. 🧮 鑑價與貸款公式計算
-      // 算平均單價 (平方公尺)
       const avgSqmPrice = totalSqmPrice / validData.length;
-      // 換算成 萬/坪 (1 坪 = 3.305785 平方公尺)
       const avgPingPrice = ((avgSqmPrice * 3.305785) / 10000).toFixed(1); 
 
-      // 模擬一套 35 坪標準房的財務試算
       const assumedPing = 35;
-      const estimatedTotalPrice = Math.round(avgPingPrice * assumedPing); // 萬
-      const ltv = 0.8; // 預設 8 成
+      const estimatedTotalPrice = Math.round(avgPingPrice * assumedPing); 
+      const ltv = 0.8; 
       const estimatedLoan = Math.round(estimatedTotalPrice * ltv);
       const downPayment = estimatedTotalPrice - estimatedLoan;
       
-      // 計算所需月收 (假設利率 2.2%，30年期，要求收支比 60%)
-      const pmtPerMillion = 0.38; // 貸 100 萬約月繳 3800 元 (0.38萬)
+      const pmtPerMillion = 0.38; 
       const estimatedMonthlyPayment = (estimatedLoan / 100) * pmtPerMillion;
       const requiredIncome = (estimatedMonthlyPayment / 0.6).toFixed(1);
 
-      // 5. 🎨 產出高階互動卡片給客戶
       const flexMessage = {
         type: 'flex',
         altText: `【智能鑑價報告】${addressQuery}`,
@@ -111,7 +105,6 @@ async function handleEvent(event) {
               { type: "text", text: addressQuery, weight: "bold", size: "xl", margin: "sm", wrap: true },
               { type: "separator", margin: "lg" },
               
-              // 內政部數據區塊
               { type: "text", text: "📊 官方大數據演算 (台南庫)", size: "sm", color: "#0F172A", weight: "bold", margin: "lg" },
               {
                 type: "box", layout: "horizontal", margin: "md",
@@ -136,7 +129,6 @@ async function handleEvent(event) {
               },
               { type: "separator", margin: "lg" },
 
-              // 銀行授信試算區塊
               { type: "text", text: "🏦 專業核貸試算 (以標準35坪計)", size: "sm", color: "#0F172A", weight: "bold", margin: "lg" },
               {
                 type: "box", layout: "horizontal", margin: "md",
@@ -192,7 +184,6 @@ async function handleEvent(event) {
   return Promise.resolve(null);
 }
 
-// 查無資料時的備用卡片 (呼叫外部深度連結)
 function sendFallbackCard(replyToken, address, totalFound, specialCount) {
   const encodedAddr = encodeURIComponent(address);
   const lejuUrl = `https://www.google.com/search?q=site:leju.com.tw+${encodedAddr}`;
@@ -228,9 +219,5 @@ function sendFallbackCard(replyToken, address, totalFound, specialCount) {
   return client.replyMessage(replyToken, fallbackMsg);
 }
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Nexus Valuation Engine running on port ${port}`);
-});
-
+// 移除原有的 app.listen，改為匯出供 Vercel 使用
 module.exports = app;
