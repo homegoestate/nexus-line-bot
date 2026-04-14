@@ -14,7 +14,8 @@ const client = new line.Client(config);
 const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
-app.post('/api/webhook', line.middleware(config), (req, res) => {
+// 💡 終極解法：使用 '*' 接收任何路徑的敲門，徹底解決 404 死機問題
+app.post('*', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
@@ -30,6 +31,11 @@ async function handleEvent(event) {
   }
 
   const userText = event.message.text.trim();
+  
+  // 💡 復活測試指令：幫我們確認 Vercel 伺服器有沒有活過來
+  if (userText.toLowerCase() === 'ping') {
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'pong！機器人已經滿血復活啦！' });
+  }
   
   const match = userText.match(/^(?:查價|估價|行情)\s*(?:([台臺]北市|新北市|桃園市|新竹市|新竹縣|[台臺]中市|[台臺]南市|高雄市)\s*)?(?:(成屋|預售屋|租賃)\s*)?(.+)$/);
   
@@ -99,7 +105,7 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v4.2", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v4.3", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
@@ -179,9 +185,7 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, flexMessage);
 
     } catch (error) {
-      // 💡 抓蟲雷達：把真實的錯誤原因直接傳回 LINE 給我們看！
-      const errorStr = error.message || JSON.stringify(error) || "未知錯誤";
-      return client.replyMessage(event.replyToken, { type: 'text', text: `💥 系統除錯模式：\n${errorStr}` });
+      return client.replyMessage(event.replyToken, { type: 'text', text: `💥 系統除錯模式：\n${error.message || "未知錯誤"}` });
     }
   }
 
