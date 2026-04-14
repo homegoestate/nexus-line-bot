@@ -192,7 +192,7 @@ function sendFallbackCard(replyToken, address, totalFound, specialCount) {
   const fallbackMsg = {
     type: 'flex',
     altText: `查無資料：${address}`,
-    contents: {
+    contents: {action: { type: "message", label: "💬 條件符合？洽詢專屬低利專案", text: "我想了解專屬低利專案！" }
       type: "bubble",
       body: {
         type: "box", layout: "vertical",
