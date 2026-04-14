@@ -15,7 +15,7 @@ const client = new line.Client(config);
 const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
-app.post('/api', line.middleware(config), (req, res) => {
+app.post('*', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
