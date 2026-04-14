@@ -1,14 +1,18 @@
 {
-  "name": "nexus-valuation-bot",
+  "name": "nexus-line-bot",
   "version": "1.0.0",
   "description": "宏國/易丞地政 智能鑑價精靈",
   "main": "api/index.js",
   "scripts": {
-    "start": "node api/index.js"
+    "start": "node api/index.js",
+    "sync": "node scripts/sync.js"
   },
   "dependencies": {
     "@line/bot-sdk": "^8.0.0",
     "express": "^4.18.2",
-    "@supabase/supabase-js": "^2.38.0"
+    "@supabase/supabase-js": "^2.38.0",
+    "axios": "^1.6.0",
+    "adm-zip": "^0.5.10",
+    "csv-parser": "^3.0.0"
   }
 }
