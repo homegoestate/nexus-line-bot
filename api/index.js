@@ -15,13 +15,12 @@ const client = new line.Client(config);
 const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
-// 修正路由：統一接收對 /api/webhook 的 POST 請求
 app.post('/api/webhook', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error(err);
+      console.error("Webhook Error:", err);
       res.status(500).end();
     });
 });
@@ -32,7 +31,9 @@ async function handleEvent(event) {
   }
 
   const userText = event.message.text.trim();
-  const match = userText.match(/^(?:查價|估價|行情)\s+(.+)$/);
+  
+  // 💡 修復一：讓「空白鍵」變成可有可無 (查價國安街 / 查價 國安街 皆可)
+  const match = userText.match(/^(?:查價|估價|行情)\s*(.+)$/);
   
   if (match) {
     const addressQuery = match[1].trim(); 
@@ -95,7 +96,7 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v3.0", color: "#fACC15", size: "xs", margin: "sm" }
+              { type: "text", text: "Open Data 鑑價引擎 v3.1", color: "#fACC15", size: "xs", margin: "sm" }
             ]
           },
           body: {
@@ -165,19 +166,24 @@ async function handleEvent(event) {
             contents: [
               {
                 type: "button", style: "primary", color: "#4F46E5",
-                action: { type: "uri", label: "💬 條件符合？洽詢專屬低利專案", uri: "https://line.me/ti/p/您的官方帳號ID" }
+                // 💡 修復二：換成絕對合法的純網址，避免 LINE 拒絕發送
+                action: { type: "uri", label: "💬 條件符合？洽詢專屬低利專案", uri: "https://line.me/R/" }
               },
-              { type: "text", text: "※ 試算結果由您的專屬資料庫即時演算，實際核貸需依銀行審核為準。", size: "xxs", color: "#94a3b8", wrap: true, margin: "md" }
+              { type: "text", text: "※ 試算結果由專屬資料庫即時演算，實際需依銀行審核為準。", size: "xxs", color: "#94a3b8", wrap: true, margin: "md" }
             ]
           }
         }
       };
 
-      return client.replyMessage(event.replyToken, flexMessage);
+      // 💡 修復三：加入終極錯誤捕捉！如果卡片壞了，機器人至少會回傳純文字
+      return client.replyMessage(event.replyToken, flexMessage).catch(err => {
+        console.error("Flex 卡片格式錯誤:", err);
+        return client.replyMessage(event.replyToken, { type: 'text', text: `鑑價完成！\n標的：${addressQuery}\n預估均價：${avgPingPrice} 萬/坪\n\n(註：卡片圖形產生失敗，請聯繫工程師)` });
+      });
 
     } catch (error) {
       console.error("資料庫連線錯誤:", error);
-      return client.replyMessage(event.replyToken, { type: 'text', text: '資料庫連線中斷，請聯繫系統管理員。' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '資料庫連線中斷，或該區域無資料。' });
     }
   }
 
@@ -216,8 +222,10 @@ function sendFallbackCard(replyToken, address, totalFound, specialCount) {
       }
     }
   };
-  return client.replyMessage(replyToken, fallbackMsg);
+  
+  return client.replyMessage(replyToken, fallbackMsg).catch(err => {
+      return client.replyMessage(replyToken, { type: 'text', text: msg });
+  });
 }
 
-// 移除原有的 app.listen，改為匯出供 Vercel 使用
 module.exports = app;
