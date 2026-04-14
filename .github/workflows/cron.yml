@@ -1,10 +1,8 @@
 name: Monthly Real Estate Data Sync
 
-# 設定鬧鐘：每個月的 15 號凌晨 2 點 (UTC 時間) 自動執行
 on:
   schedule:
     - cron: '0 2 15 * *'
-  # 允許我們在 GitHub 網頁上手動點擊執行按鈕 (測試用)
   workflow_dispatch:
 
 jobs:
@@ -13,10 +11,10 @@ jobs:
 
     steps:
       - name: 📥 下載專案程式碼
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # 💡 這裡升級成 v4
 
       - name: ⚙️ 安裝 Node.js 環境
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4 # 💡 這裡升級成 v4
         with:
           node-version: '18'
 
