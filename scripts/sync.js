@@ -9,35 +9,47 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 內政部實價登錄當季完整包 URL
-const MOI_URL = 'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_landcsv.zip';
+// 內政部實價登錄 URL (改用專屬 OpenData 最新期下載端點)
+const MOI_DOWNLOAD_URL = 'https://plvr.land.moi.gov.tw/Download?type=zip&fileName=lvr_landcsv.zip';
+const MOI_HOME_URL = 'https://plvr.land.moi.gov.tw/DownloadOpenData';
 
 async function runCrawler() {
-  console.log("🚀 [Phase 2] 啟動內政部實價登錄全自動爬蟲 (特務強化版)...");
+  console.log("🚀 [Phase 2] 啟動內政部實價登錄全自動爬蟲 (突破 Session 防火牆版)...");
 
   try {
-    console.log("📥 正在從內政部下載最新數據...");
+    console.log("🔐 第一步：前往首頁按電鈴，取得合法通行證 (Session Cookie)...");
     
-    // 💡 強化偽裝：加上完整的瀏覽器語言、來源網站等證明，假裝我們是真人
-    const response = await axios.get(MOI_URL, { 
+    // 1. 先去首頁拿 Cookie
+    const sessionRes = await axios.get(MOI_HOME_URL, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    
+    // 擷取回傳的 Cookie
+    const cookies = sessionRes.headers['set-cookie'] || [];
+    const cookieString = cookies.map(c => c.split(';')[0]).join('; ');
+    console.log("✅ 成功取得通行證:", cookieString ? "有拿到Cookie" : "無Cookie");
+
+    console.log("📥 第二步：帶著通行證，正式請求下載 ZIP 檔案...");
+    // 2. 帶著 Cookie 去下載檔案
+    const response = await axios.get(MOI_DOWNLOAD_URL, { 
       responseType: 'arraybuffer',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': 'https://plvr.land.moi.gov.tw/DownloadOpenData'
+        'Referer': MOI_HOME_URL,
+        'Cookie': cookieString
       },
-      timeout: 30000
+      timeout: 60000 // 延長到 60 秒，給大檔案一點時間
     });
     
     let zip;
     try {
       zip = new AdmZip(response.data);
     } catch (zipError) {
-      // 💡 監視器：如果解壓縮失敗，把內政部擋人的網頁內容印出來！
       const errorHtml = response.data.toString('utf8').substring(0, 800);
-      console.error("\n❌ 內政部沒有給我們 ZIP 檔！它回傳了這個擋人網頁：\n", errorHtml);
-      throw new Error("內政部防火牆阻擋了下載請求");
+      console.error("\n❌ 內政部還是沒有給 ZIP！回傳內容：\n", errorHtml);
+      throw new Error("解壓縮失敗，疑似被防火牆阻擋");
     }
     
     const zipEntries = zip.getEntries();
@@ -86,7 +98,6 @@ async function runCrawler() {
 
   } catch (error) {
     console.error("\n💥 爬蟲執行發生錯誤:", error.message);
-    // 💡 強制中斷：告訴 GitHub 我們失敗了，讓外面亮起真實的紅燈！
     process.exit(1); 
   }
 }
