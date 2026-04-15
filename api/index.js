@@ -52,7 +52,6 @@ async function handleEvent(event) {
 
       data.forEach(item => {
         let ageGroup = '年份不詳';
-        // 💡 核心升級：如果是預售屋，強制歸類為「預售指標」
         if (item.transaction_type === '預售屋') {
           ageGroup = '🚀 預售屋 (未來指標)';
         } else if (item.building_age !== null) {
@@ -77,9 +76,8 @@ async function handleEvent(event) {
       const downPayment = totalEstimated - loan; 
       const monthlyIncome = (loan / 158).toFixed(1); 
 
-      // 針對預售屋，稍微調整卡片顏色讓它更顯眼
       const isPresale = targetAgeGroup.includes('預售屋');
-      const accentColor = isPresale ? "#e74c3c" : "#536DFE"; // 預售屋用紅色強調
+      const accentColor = isPresale ? "#e74c3c" : "#536DFE"; 
 
       const detailFlex = {
         type: "flex",
@@ -151,16 +149,10 @@ async function handleEvent(event) {
   }
 
   // ==========================================
-  // 🌟 功能 B：攔截「專人服務」按鈕
+  // 🌟 功能 B：建案/路段 雙引擎搜尋 (支援預售屋分類)
   // ==========================================
-  if (rawText === '我想洽詢房貸專案') {
-    const replyMsg = "您好！感謝您使用宏國地政的智能鑑價系統 🏦\n\n為了提供您最精準的專屬方案，請您留下：\n1. 您的稱呼\n2. 聯絡電話\n3. 欲諮詢的詳細路段或社區名稱\n\n我們的專業顧問將會在上班時間盡快與您聯繫！";
-    return client.replyMessage(event.replyToken, { type: 'text', text: replyMsg });
-  }
-
-  // ==========================================
-  // 🌟 功能 C：建案/路段 雙引擎搜尋 (支援預售屋分類)
-  // ==========================================
+  
+  // 💡 安全鎖：只要不是「查價」或「估價」開頭，Vercel 機器人絕對不插嘴，全交給 LINE 後台！
   if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) {
     return Promise.resolve(null);
   }
@@ -186,7 +178,6 @@ async function handleEvent(event) {
 
     data.forEach(item => {
       let ageGroup = '年份不詳';
-      // 💡 核心升級：分類時抽出預售屋
       if (item.transaction_type === '預售屋') {
         ageGroup = '🚀 預售屋 (未來指標)';
       } else if (item.building_age !== null) {
@@ -207,7 +198,6 @@ async function handleEvent(event) {
 
     const bubbles = [];
 
-    // 將預售屋排序到最前面 (增加客戶眼球吸引力)
     const sortedEntries = Object.entries(groupedData).sort((a, b) => {
       if (a[0].includes('預售屋')) return -1;
       if (b[0].includes('預售屋')) return 1;
