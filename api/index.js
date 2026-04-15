@@ -22,20 +22,36 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-// 💡 【老闆專屬：建案快查字典】
-// 未來只要在這裡加上 "建案名": "精準關鍵字" 就可以無限擴充！
+// 💡 【修正版：建案減法字典】
+// 把客戶愛打的「建商+案名」，還原成政府資料庫裡的「精簡案名」或「路段」
 const communityDictionary = {
-  "新源邸": "海安路三段",
-  "遠雄新源邸": "海安路三段",
+  // 預售/新建案 (剝除建商名稱)
+  "清景麟研森": "研森",
+  "興富發愛琴海": "愛琴海",
+  "潤隆真愛": "真愛",
+  "達麗世界巨星": "世界巨星",
+  "浩瀚無極": "無極",
+  "遠雄藏萃": "藏萃",
+  "遠雄北府苑": "北府苑",
+  "遠雄新源邸": "新源邸",
+  
+  // 知名成屋/老社區 (直接轉路段，避開沒寫案名的地雷)
   "成大林森": "林森路三段",
-  "清景麟研森": "崇德路",
-  "研森": "崇德路",
-  "湖映白": "九份子",
+  "巴克禮": "崇明路",
+  "世紀之門": "中華東路三段",
+  "世界帝心": "中華東路三段",
   "國家新境": "開元路",
-  "文海硯": "海安路三段"
+  "文海硯": "海安路三段",
+  "桂田擎天樹": "文成三路",
+  "第五大道": "永華路二段",
+  "博悦": "永華路二段",
+  "凌波揚": "健康路三段",
+  "綠海都心": "東橋",
+  "仁發總圖": "東橋",
+  "桂田磐古": "善化區"
 };
 
-// 💡 【魔法轉換器：把瘦數字變成公務員用的胖數字(全形)】
+// 💡 胖數字轉換器
 function toFullWidth(str) {
   return str.replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
 }
@@ -57,7 +73,6 @@ async function handleEvent(event) {
 
       const fullWidthKeyword = toFullWidth(keyword);
 
-      // 同時用「瘦數字」和「胖數字」去地址跟備註挖資料！
       const { data, error } = await supabase
         .from('real_estate_transactions')
         .select('*')
@@ -70,9 +85,8 @@ async function handleEvent(event) {
 
       data.forEach(item => {
         let ageGroup = '年份不詳';
-        if (item.transaction_type === '預售屋') {
-          ageGroup = '🚀 預售屋 (未來指標)';
-        } else if (item.building_age !== null) {
+        if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
+        else if (item.building_age !== null) {
           if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
           else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
           else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
@@ -164,7 +178,7 @@ async function handleEvent(event) {
   let keyword = rawText.replace(/^(查價|估價)/, '').trim();
   if (keyword.length < 2) return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱！' });
 
-  // 💡 查字典：如果輸入的是建案，自動轉換成對應的路段去搜
+  // 💡 查字典：把過長的名字縮短，或是轉成路段
   let searchKeyword = keyword;
   for (const [key, val] of Object.entries(communityDictionary)) {
     if (keyword.includes(key)) {
