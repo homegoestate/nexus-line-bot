@@ -31,7 +31,7 @@ async function handleEvent(event) {
   if (rawText.length < 2) return Promise.resolve(null); 
 
   // ==========================================
-  // 🌟 功能 A：攔截「詳細試算」按鈕，產出核貸報告
+  // 🌟 功能 A：攔截「詳細試算」按鈕
   // ==========================================
   if (rawText.startsWith('💰試算')) {
     try {
@@ -139,21 +139,28 @@ async function handleEvent(event) {
   }
 
   // ==========================================
-  // 🌟 功能 B：攔截「專人服務」按鈕 (取代 LINE 後台的自動回覆)
+  // 🌟 功能 B：攔截「專人服務」按鈕
   // ==========================================
   if (rawText === '我想洽詢房貸專案') {
     const replyMsg = "您好！感謝您使用宏國地政的智能鑑價系統 🏦\n\n為了提供您最精準的專屬房貸方案，請您留下：\n1. 您的稱呼\n2. 聯絡電話\n3. 欲諮詢的詳細路段或社區名稱\n\n我們的專業貸款顧問將會在上班時間盡快與您聯繫！";
-    
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyMsg
-    });
+    return client.replyMessage(event.replyToken, { type: 'text', text: replyMsg });
   }
 
   // ==========================================
-  // 🌟 功能 C：一般直覺搜尋，產出「多頁滑動卡片」
+  // 🌟 功能 C：加上「查價安全鎖」的一般搜尋
   // ==========================================
-  const keyword = rawText.replace(/查價|估價|行情/g, '').trim();
+  
+  // 如果使用者輸入的不是以「查價」或「估價」開頭，機器人直接裝死，讓 LINE 後台接手！
+  if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) {
+    return Promise.resolve(null);
+  }
+
+  // 把「查價」或「估價」這幾個字拔掉，只留下真正的路名 (例如：查價 海安路 -> 變成 海安路)
+  const keyword = rawText.replace(/^(查價|估價)/, '').trim();
+
+  if (keyword.length < 2) {
+    return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的路段名稱，例如：查價 海安路' });
+  }
 
   try {
     const { data, error } = await supabase.from('real_estate_transactions').select('*').ilike('address', `%${keyword}%`);
