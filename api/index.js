@@ -22,74 +22,7 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-// 💡 【台南指標社區精華大補帖】
-// 專門對付「政府沒寫案名」的知名中古屋，以及客戶愛打的簡稱
-const communityDictionary = {
-  // === 🚀 預售/新建案簡稱還原 (剝除建商) ===
-  "清景麟研森": "研森",
-  "興富發愛琴海": "愛琴海",
-  "潤隆真愛": "真愛",
-  "達麗世界巨星": "世界巨星",
-  "浩瀚無極": "無極",
-  "遠雄藏萃": "藏萃",
-  "遠雄北府苑": "北府苑",
-  "遠雄新源邸": "新源邸",
-  "春福采采": "采采",
-  "和通沐東風": "沐東風",
-  "三發滙世界": "滙世界",
-  "聯上蘋果莊園": "蘋果莊園",
-  "聯上康橋": "康橋",
-
-  // === 👑 東區 (豪宅與指標中古屋) ===
-  "耘非凡": "林森路一段",
-  "席悅": "凱旋路",
-  "府都All in One": "長榮路一段",
-  "知音悅": "林森路一段",
-  "成大林森": "林森路三段",
-  "世界帝心": "中華東路三段",
-  "世界帝標": "東門路二段",
-  "鄉城大鎮": "中華東路二段",
-  "文化傳家": "崇明路",
-  "巴克禮": "崇明路",
-
-  // === 👑 永康區 (東橋與大橋商圈) ===
-  "綠海都心": "東橋",
-  "仁發總圖": "東橋",
-  "三發橋": "東橋",
-  "永康太子廟": "太子路",
-  "大橋京城": "大橋二街",
-  "世紀之門": "中華路", 
-  "真愛": "東橋",
-  "良勳夢公園": "東橋",
-
-  // === 👑 北區 (鄭子寮與開元) ===
-  "桂田擎天樹": "文成三路",
-  "國家新境": "開元路",
-  "成大城": "開元路",
-  "文海硯": "海安路三段",
-  "綠海": "海安路三段",
-  "太子文元": "文元路",
-  "皇龍帝堡": "和緯路",
-
-  // === 👑 安平/中西區 (五期與星鑽) ===
-  "白鷺灣": "安北路",
-  "耘翠": "健康路三段",
-  "凌波揚": "健康路三段",
-  "第五大道": "永華路二段",
-  "博悦": "永華路二段",
-  "府都Double1": "永華路二段",
-  "大樓市政交響曲": "建平八街",
-  "星鑽": "府前路二段",
-
-  // === 👑 南科生活圈 (善化/新市) ===
-  "桂田磐古": "善化區",
-  "植村NY": "新市區",
-  "太子WIN": "善化區",
-  "LM特區": "善化區蓮潭",
-  "陽光大道": "善化區陽光"
-};
-
-// 💡 胖數字轉換器
+// 💡 胖數字轉換器 (把 810 變成 ８１０)
 function toFullWidth(str) {
   return str.replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
 }
@@ -210,25 +143,29 @@ async function handleEvent(event) {
   }
 
   // ==========================================
-  // 🌟 功能 B：建案字典轉換 與 胖胖數字引擎
+  // 🌟 功能 B：雲端字典轉換 + 胖胖數字引擎
   // ==========================================
   if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) return Promise.resolve(null);
   let keyword = rawText.replace(/^(查價|估價)/, '').trim();
   if (keyword.length < 2) return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱！' });
 
-  // 💡 查字典：把過長的名字縮短，或是轉成路段
   let searchKeyword = keyword;
-  for (const [key, val] of Object.entries(communityDictionary)) {
-    if (keyword.includes(key)) {
-      searchKeyword = val;
-      break;
-    }
-  }
-
-  // 💡 胖數字轉換：把 810 變成 ８１０
-  const fullWidthKeyword = toFullWidth(searchKeyword);
 
   try {
+    // 💡 1. 直接連到您的 Supabase 雲端字典查詢！
+    const { data: dictData, error: dictError } = await supabase
+      .from('community_dictionary')
+      .select('address_keyword')
+      .ilike('community_name', `%${keyword}%`)
+      .limit(1);
+
+    if (!dictError && dictData && dictData.length > 0) {
+      searchKeyword = dictData[0].address_keyword; // 找到字典對應後，自動轉換成正確路段去搜實價登錄 [cite: 1, 4, 7]
+    }
+
+    const fullWidthKeyword = toFullWidth(searchKeyword);
+
+    // 💡 2. 去 160 萬筆實價登錄資料庫撈數據
     const { data, error } = await supabase
       .from('real_estate_transactions')
       .select('*')
@@ -276,14 +213,14 @@ async function handleEvent(event) {
           ]
         },
         body: { type: 'box', layout: 'vertical', contents: [
-            { type: 'box', layout: 'horizontal', contents: [
-                { type: 'text', text: '有效樣本', size: 'sm', color: '#555555', flex: 2 },
-                { type: 'text', text: `${stats.count} 筆`, size: 'sm', color: '#111111', align: 'end', weight: 'bold', flex: 1 }
+            { type: "box", layout: "horizontal", contents: [
+                { type: "text", text: "有效樣本", size: "sm", color: "#555555", flex: 2 },
+                { type: "text", text: `${stats.count} 筆`, size: "sm", color: "#111111", align: "end", weight: "bold", flex: 1 }
               ]
             },
-            { type: 'box', layout: 'horizontal', margin: 'md', contents: [
-                { type: 'text', text: '平均單價', size: 'sm', color: '#555555', flex: 1 },
-                { type: 'text', text: `約 ${avgPricePing} 萬`, size: 'sm', color: '#00B900', align: 'end', weight: 'bold', flex: 2 }
+            { type: "box", layout: "horizontal", margin: "md", contents: [
+                { type: "text", text: "平均單價", size: "sm", color: "#555555", flex: 1 },
+                { type: "text", text: `約 ${avgPricePing} 萬`, size: "sm", color: "#00B900", align: "end", weight: "bold", flex: 2 }
               ]
             }
           ]
@@ -296,7 +233,7 @@ async function handleEvent(event) {
     }
 
     const carouselBubbles = bubbles.slice(0, 12); 
-    return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的鑑價出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的鑑價分析出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
 
   } catch (error) {
     return client.replyMessage(event.replyToken, { type: 'text', text: '系統線路繁忙，請稍後再試！' });
