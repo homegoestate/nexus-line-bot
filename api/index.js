@@ -35,13 +35,11 @@ async function handleEvent(event) {
   // ==========================================
   if (rawText.startsWith('💰試算')) {
     try {
-      // 把按鈕藏的密碼解開，例如: "💰試算 海安路_住宅大樓_0-5年 (新成屋)"
       const parts = rawText.replace('💰試算 ', '').split('_');
       const keyword = parts[0];
       const targetType = parts[1];
       const targetAgeGroup = parts[2];
 
-      // 再次抓取該路段資料來精算
       const { data, error } = await supabase.from('real_estate_transactions').select('*').ilike('address', `%${keyword}%`);
       if (error || !data) throw error;
 
@@ -64,15 +62,13 @@ async function handleEvent(event) {
 
       if (count === 0) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 查無資料' });
 
-      // 專業核貸數學公式
       const avgPriceSqm = totalPrice / count;
-      const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); // 萬/坪
-      const totalEstimated = Math.round(avgPricePing * 35); // 預設35坪總價(萬)
-      const loan = Math.round(totalEstimated * 0.8); // 8成貸款
-      const downPayment = totalEstimated - loan; // 頭期款
-      const monthlyIncome = (loan / 158).toFixed(1); // 粗估：30年房貸，佔收比30%所需月薪
+      const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
+      const totalEstimated = Math.round(avgPricePing * 35); 
+      const loan = Math.round(totalEstimated * 0.8); 
+      const downPayment = totalEstimated - loan; 
+      const monthlyIncome = (loan / 158).toFixed(1); 
 
-      // 產出您最愛的「詳細版試算卡片」
       const detailFlex = {
         type: "flex",
         altText: `${keyword} 詳細核貸試算`,
@@ -143,7 +139,19 @@ async function handleEvent(event) {
   }
 
   // ==========================================
-  // 🌟 功能 B：一般直覺搜尋，產出「多頁滑動卡片」
+  // 🌟 功能 B：攔截「專人服務」按鈕 (取代 LINE 後台的自動回覆)
+  // ==========================================
+  if (rawText === '我想洽詢房貸專案') {
+    const replyMsg = "您好！感謝您使用宏國地政的智能鑑價系統 🏦\n\n為了提供您最精準的專屬房貸方案，請您留下：\n1. 您的稱呼\n2. 聯絡電話\n3. 欲諮詢的詳細路段或社區名稱\n\n我們的專業貸款顧問將會在上班時間盡快與您聯繫！";
+    
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyMsg
+    });
+  }
+
+  // ==========================================
+  // 🌟 功能 C：一般直覺搜尋，產出「多頁滑動卡片」
   // ==========================================
   const keyword = rawText.replace(/查價|估價|行情/g, '').trim();
 
@@ -165,7 +173,6 @@ async function handleEvent(event) {
         else ageGroup = '20年以上 (老屋)';
       }
 
-      // 建立群組標籤
       const tag = `${item.building_type}_${ageGroup}`;
       const displayTag = `${item.building_type} | ${ageGroup}`;
 
@@ -202,14 +209,13 @@ async function handleEvent(event) {
           ]
         },
         footer: { type: 'box', layout: 'vertical', contents: [
-            // 💡 這裡就是解法：按鈕送出帶有底線 "_" 密碼的字串，讓上面的邏輯攔截！
             { type: 'button', style: 'primary', color: '#536DFE', action: { type: 'message', label: '詳細試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
           ]
         }
       });
     }
 
-    const carouselBubbles = bubbles.slice(0, 12); // LINE最多12頁
+    const carouselBubbles = bubbles.slice(0, 12); 
     return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的鑑價分析出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
 
   } catch (error) {
