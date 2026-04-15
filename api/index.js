@@ -22,11 +22,26 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return Promise.resolve(null);
-  }
+// 💡 【老闆專屬：建案快查字典】
+// 未來只要在這裡加上 "建案名": "精準關鍵字" 就可以無限擴充！
+const communityDictionary = {
+  "新源邸": "海安路三段",
+  "遠雄新源邸": "海安路三段",
+  "成大林森": "林森路三段",
+  "清景麟研森": "崇德路",
+  "研森": "崇德路",
+  "湖映白": "九份子",
+  "國家新境": "開元路",
+  "文海硯": "海安路三段"
+};
 
+// 💡 【魔法轉換器：把瘦數字變成公務員用的胖數字(全形)】
+function toFullWidth(str) {
+  return str.replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
+}
+
+async function handleEvent(event) {
+  if (event.type !== 'message' || event.message.type !== 'text') return Promise.resolve(null);
   const rawText = event.message.text.trim();
   if (rawText.length < 2) return Promise.resolve(null); 
 
@@ -40,10 +55,13 @@ async function handleEvent(event) {
       const targetType = parts[1];
       const targetAgeGroup = parts[2];
 
+      const fullWidthKeyword = toFullWidth(keyword);
+
+      // 同時用「瘦數字」和「胖數字」去地址跟備註挖資料！
       const { data, error } = await supabase
         .from('real_estate_transactions')
         .select('*')
-        .or(`address.ilike.%${keyword}%,notes.ilike.%${keyword}%`);
+        .or(`address.ilike.%${keyword}%,notes.ilike.%${keyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`);
 
       if (error || !data) throw error;
 
@@ -60,7 +78,6 @@ async function handleEvent(event) {
           else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
           else ageGroup = '20年以上 (老屋)';
         }
-
         if (item.building_type === targetType && ageGroup === targetAgeGroup) {
           count++;
           totalPrice += item.unit_price_sqm;
@@ -80,20 +97,15 @@ async function handleEvent(event) {
       const accentColor = isPresale ? "#e74c3c" : "#536DFE"; 
 
       const detailFlex = {
-        type: "flex",
-        altText: `${keyword} 詳細核貸試算`,
+        type: "flex", altText: `${keyword} 詳細核貸試算`,
         contents: {
           type: "bubble",
-          header: {
-            type: "box", layout: "vertical", backgroundColor: "#1c2833",
-            contents: [
+          header: { type: "box", layout: "vertical", backgroundColor: "#1c2833", contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "md" },
               { type: "text", text: "社區/路段 鑑價引擎", color: "#f1c40f", size: "xs", margin: "sm" }
             ]
           },
-          body: {
-            type: "box", layout: "vertical",
-            contents: [
+          body: { type: "box", layout: "vertical", contents: [
               { type: "text", text: `📍 查詢標的 (${targetType})`, size: "xs", color: "#888888" },
               { type: "text", text: keyword, size: "xxl", weight: "bold", margin: "sm", wrap: true },
               { type: "text", text: targetAgeGroup, size: "sm", color: accentColor, margin: "xs", weight: "bold" },
@@ -133,41 +145,42 @@ async function handleEvent(event) {
               }
             ]
           },
-          footer: {
-            type: "box", layout: "vertical", contents: [
+          footer: { type: "box", layout: "vertical", contents: [
               { type: "button", style: "primary", color: "#536DFE", action: { type: "message", label: "條件符合？洽詢專屬方案", text: "我想洽詢房貸專案" } }
             ]
           }
         }
       };
-
       return client.replyMessage(event.replyToken, detailFlex);
     } catch (error) {
-      console.error(error);
       return client.replyMessage(event.replyToken, { type: 'text', text: '試算發生錯誤，請稍後再試！' });
     }
   }
 
   // ==========================================
-  // 🌟 功能 B：建案/路段 雙引擎搜尋 (支援預售屋分類)
+  // 🌟 功能 B：建案字典轉換 與 胖胖數字引擎
   // ==========================================
-  
-  // 💡 安全鎖：只要不是「查價」或「估價」開頭，Vercel 機器人絕對不插嘴，全交給 LINE 後台！
-  if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) {
-    return Promise.resolve(null);
+  if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) return Promise.resolve(null);
+  let keyword = rawText.replace(/^(查價|估價)/, '').trim();
+  if (keyword.length < 2) return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱！' });
+
+  // 💡 查字典：如果輸入的是建案，自動轉換成對應的路段去搜
+  let searchKeyword = keyword;
+  for (const [key, val] of Object.entries(communityDictionary)) {
+    if (keyword.includes(key)) {
+      searchKeyword = val;
+      break;
+    }
   }
 
-  const keyword = rawText.replace(/^(查價|估價)/, '').trim();
-
-  if (keyword.length < 2) {
-    return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱，例如：查價 海安路 或 查價 美術皇居' });
-  }
+  // 💡 胖數字轉換：把 810 變成 ８１０
+  const fullWidthKeyword = toFullWidth(searchKeyword);
 
   try {
     const { data, error } = await supabase
       .from('real_estate_transactions')
       .select('*')
-      .or(`address.ilike.%${keyword}%,notes.ilike.%${keyword}%`);
+      .or(`address.ilike.%${searchKeyword}%,notes.ilike.%${searchKeyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`);
 
     if (error) throw error;
     if (!data || data.length === 0) {
@@ -175,29 +188,23 @@ async function handleEvent(event) {
     }
 
     const groupedData = {};
-
     data.forEach(item => {
       let ageGroup = '年份不詳';
-      if (item.transaction_type === '預售屋') {
-        ageGroup = '🚀 預售屋 (未來指標)';
-      } else if (item.building_age !== null) {
+      if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
+      else if (item.building_age !== null) {
         if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
         else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
         else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
         else ageGroup = '20年以上 (老屋)';
       }
-
       const tag = `${item.building_type}_${ageGroup}`;
       const displayTag = `${item.building_type} | ${ageGroup}`;
-
       if (!groupedData[tag]) groupedData[tag] = { count: 0, totalPrice: 0, display: displayTag, bType: item.building_type, bAge: ageGroup };
-      
       groupedData[tag].count += 1;
       groupedData[tag].totalPrice += item.unit_price_sqm; 
     });
 
     const bubbles = [];
-
     const sortedEntries = Object.entries(groupedData).sort((a, b) => {
       if (a[0].includes('預售屋')) return -1;
       if (b[0].includes('預售屋')) return 1;
@@ -237,10 +244,9 @@ async function handleEvent(event) {
     }
 
     const carouselBubbles = bubbles.slice(0, 12); 
-    return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的鑑價分析出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的鑑價出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
 
   } catch (error) {
-    console.error(error);
     return client.replyMessage(event.replyToken, { type: 'text', text: '系統線路繁忙，請稍後再試！' });
   }
 }
