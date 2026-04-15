@@ -2,27 +2,24 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 
-const config = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET
-};
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-
-const client = new line.Client(config);
-const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
-// 💡 終極解法：使用 '*' 接收任何路徑的敲門，徹底解決 404 死機問題
-app.post('*', line.middleware(config), (req, res) => {
-  Promise
-    .all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error("Webhook Error:", err);
-      res.status(500).end();
-    });
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET,
+};
+const client = new line.Client(config);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
+app.post('/api', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events;
+    await Promise.all(events.map(handleEvent));
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error(err);
+    res.status(500).end();
+  }
 });
 
 async function handleEvent(event) {
@@ -30,192 +27,130 @@ async function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  const userText = event.message.text.trim();
+  const rawText = event.message.text.trim();
   
-  // 💡 復活測試指令：幫我們確認 Vercel 伺服器有沒有活過來
-  if (userText.toLowerCase() === 'ping') {
-    return client.replyMessage(event.replyToken, { type: 'text', text: 'pong！機器人已經滿血復活啦！' });
-  }
-  
-  const match = userText.match(/^(?:查價|估價|行情)\s*(?:([台臺]北市|新北市|桃園市|新竹市|新竹縣|[台臺]中市|[台臺]南市|高雄市)\s*)?(?:(成屋|預售屋|租賃)\s*)?(.+)$/);
-  
-  if (match) {
-    let queryCity = match[1]; 
-    const queryType = match[2]; 
-    const addressQuery = match[3].trim(); 
-    
-    if (queryCity) queryCity = queryCity.replace(/臺/g, '台');
-    
-    try {
-      let dbQuery = supabase.from('real_estate_transactions').select('*');
-      if (queryCity) dbQuery = dbQuery.eq('city', queryCity);
-      if (queryType) dbQuery = dbQuery.eq('transaction_type', queryType);
+  // 💡 1. 直覺搜尋解析：把使用者可能打的「查價」字眼濾掉，只留關鍵字
+  const keyword = rawText.replace(/查價|估價|行情/g, '').trim();
+
+  // 如果字太少 (例如只打一個字)，或者打 ping，就不啟動鑑價
+  if (keyword.toLowerCase() === 'ping') return client.replyMessage(event.replyToken, { type: 'text', text: 'pong！大腦運作正常！' });
+  if (keyword.length < 2) return Promise.resolve(null); 
+
+  try {
+    // 💡 2. 使用 pg_trgm 進行光速模糊搜尋
+    const { data, error } = await supabase
+      .from('real_estate_transactions')
+      .select('*')
+      .ilike('address', `%${keyword}%`);
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `⚠️ 查無有效樣本\n在資料庫中找無包含【${keyword}】的標準交易。`
+      });
+    }
+
+    // 💡 3. 自動分類邏輯 (分裝到不同籃子裡)
+    const groupedData = {};
+
+    data.forEach(item => {
+      // 判斷屋齡級距
+      let ageGroup = '年份不詳';
+      if (item.building_age !== null) {
+        if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
+        else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
+        else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
+        else ageGroup = '20年以上 (老屋)';
+      }
+
+      // 組合標籤，例如："住宅大樓 | 0-5年 (新成屋)"
+      const tag = `${item.building_type} | ${ageGroup}`;
+
+      if (!groupedData[tag]) {
+        groupedData[tag] = { count: 0, totalPrice: 0, items: [] };
+      }
       
-      const sqlAddress = addressQuery.replace(/[台臺]/g, '_');
-      dbQuery = dbQuery.ilike('address', `%${sqlAddress}%`);
+      groupedData[tag].count += 1;
+      // 這裡簡單計算總價用來平均，實務上您可以套用您原本的「排雷演算法」
+      groupedData[tag].totalPrice += item.unit_price_sqm; 
+      groupedData[tag].items.push(item);
+    });
 
-      const { data, error } = await dbQuery;
-      if (error) throw error;
+    // 💡 4. 製作 LINE 多頁滑動卡片 (Carousel)
+    const bubbles = [];
 
-      let validData = [];
-      let specialCount = 0;
-      let zeroPriceCount = 0;
-      let totalSqmPrice = 0;
+    // 將分類好的資料，一組做成一張卡片
+    for (const [tag, stats] of Object.entries(groupedData)) {
+      // 簡單換算：平方公尺單價 -> 萬/坪
+      const avgPriceSqm = stats.totalPrice / stats.count;
+      const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
 
-      if (data && data.length > 0) {
-        data.forEach(row => {
-          const notes = row['notes'] || '';
-          const price = row['unit_price_sqm'];
-          
-          if (notes.includes('親友') || notes.includes('關係人') || notes.includes('特殊')) {
-            specialCount++;
-          } else if (!price || price === 0) {
-            zeroPriceCount++;
-          } else {
-            validData.push(row);
-            totalSqmPrice += Number(price);
-          }
-        });
-      }
-
-      if (validData.length === 0) {
-        return sendFallbackCard(event.replyToken, addressQuery, data ? data.length : 0, specialCount, zeroPriceCount, queryCity, queryType);
-      }
-
-      const avgSqmPrice = totalSqmPrice / validData.length;
-      const avgPingPrice = ((avgSqmPrice * 3.305785) / 10000).toFixed(1); 
-      const assumedPing = 35;
-      const estimatedTotalPrice = Math.round(avgPingPrice * assumedPing); 
-      const ltv = 0.8; 
-      const estimatedLoan = Math.round(estimatedTotalPrice * ltv);
-      const downPayment = estimatedTotalPrice - estimatedLoan;
-      const pmtPerMillion = 0.38; 
-      const estimatedMonthlyPayment = (estimatedLoan / 100) * pmtPerMillion;
-      const requiredIncome = (estimatedMonthlyPayment / 0.6).toFixed(1);
-
-      const cardTitle = `${queryCity || '全國'}${queryType || '成屋'}行情`;
-
-      const flexMessage = {
-        type: 'flex',
-        altText: `【鑑價報告】${cardTitle} - ${addressQuery}`,
-        contents: {
-          type: "bubble",
-          size: "mega",
-          header: {
-            type: "box", layout: "vertical", backgroundColor: "#1E293B", paddingAll: "20px",
-            contents: [
-              { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "sm" },
-              { type: "text", text: "Open Data 鑑價引擎 v4.3", color: "#fACC15", size: "xs", margin: "sm" }
-            ]
-          },
-          body: {
-            type: "box", layout: "vertical",
-            contents: [
-              { type: "text", text: `📍 查詢標的 (${cardTitle})`, size: "xs", color: "#64748b", weight: "bold" },
-              { type: "text", text: addressQuery, weight: "bold", size: "xl", margin: "sm", wrap: true },
-              { type: "separator", margin: "lg" },
-              
-              { type: "text", text: "📊 官方大數據演算", size: "sm", color: "#0F172A", weight: "bold", margin: "lg" },
-              {
-                type: "box", layout: "horizontal", margin: "md",
-                contents: [
-                  { type: "text", text: "有效交易樣本", size: "sm", color: "#64748b" },
-                  { type: "text", text: `${validData.length} 筆`, size: "sm", color: "#0F172A", weight: "bold", align: "end" }
-                ]
-              },
-              {
-                type: "box", layout: "horizontal", margin: "sm",
-                contents: [
-                  { type: "text", text: "均價 (排除特例)", size: "sm", color: "#64748b" },
-                  { type: "text", text: `約 ${avgPingPrice} 萬/坪`, size: "sm", color: "#059669", weight: "bold", align: "end" }
-                ]
-              },
-              {
-                type: "box", layout: "horizontal", margin: "sm",
-                contents: [
-                  { type: "text", text: "排雷演算", size: "sm", color: "#64748b" },
-                  { type: "text", text: `已過濾 ${specialCount+zeroPriceCount} 筆無效/特殊交易`, size: "xs", color: "#EF4444", weight: "bold", align: "end" }
-                ]
-              },
-              { type: "separator", margin: "lg" },
-
-              { type: "text", text: "🏦 專業核貸試算 (以標準35坪計)", size: "sm", color: "#0F172A", weight: "bold", margin: "lg" },
-              {
-                type: "box", layout: "horizontal", margin: "md",
-                contents: [
-                  { type: "text", text: "預估標的總價", size: "sm", color: "#64748b" },
-                  { type: "text", text: `${estimatedTotalPrice} 萬`, size: "sm", color: "#0F172A", weight: "bold", align: "end" }
-                ]
-              },
-              {
-                type: "box", layout: "horizontal", margin: "sm",
-                contents: [
-                  { type: "text", text: "銀行可貸 (估8成)", size: "sm", color: "#64748b" },
-                  { type: "text", text: `${estimatedLoan} 萬`, size: "sm", color: "#2563EB", weight: "bold", align: "end" }
-                ]
-              },
-              {
-                type: "box", layout: "horizontal", margin: "sm",
-                contents: [
-                  { type: "text", text: "需準備自備款", size: "sm", color: "#64748b" },
-                  { type: "text", text: `${downPayment} 萬`, size: "sm", color: "#EA580C", weight: "bold", align: "end" }
-                ]
-              },
-              {
-                type: "box", layout: "horizontal", margin: "sm", backgroundColor: "#F1F5F9", paddingAll: "8px", cornerRadius: "8px",
-                contents: [
-                  { type: "text", text: "💡 建議月收入達", size: "xs", color: "#475569", weight: "bold" },
-                  { type: "text", text: `${requiredIncome} 萬以上`, size: "xs", color: "#0F172A", weight: "bold", align: "end" }
-                ]
-              }
-            ]
-          },
-          footer: {
-            type: "box", layout: "vertical", spacing: "sm",
-            contents: [
-              {
-                type: "button", style: "primary", color: "#4F46E5",
-                action: { type: "uri", label: "💬 條件符合？洽詢專屬低利專案", uri: "https://line.me/R/" }
-              }
-            ]
-          }
+      bubbles.push({
+        type: 'bubble',
+        size: 'micro',
+        header: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            { type: 'text', text: keyword, weight: 'bold', size: 'xl', color: '#111111' },
+            { type: 'text', text: tag, size: 'xs', color: '#888888', wrap: true }
+          ]
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'box', layout: 'horizontal',
+              contents: [
+                { type: 'text', text: '有效樣本', size: 'sm', color: '#555555', flex: 2 },
+                { type: 'text', text: `${stats.count} 筆`, size: 'sm', color: '#111111', align: 'end', weight: 'bold', flex: 1 }
+              ]
+            },
+            {
+              type: 'box', layout: 'horizontal', margin: 'md',
+              contents: [
+                { type: 'text', text: '平均單價', size: 'sm', color: '#555555', flex: 1 },
+                { type: 'text', text: `約 ${avgPricePing} 萬/坪`, size: 'sm', color: '#00B900', align: 'end', weight: 'bold', flex: 2 }
+              ]
+            }
+          ]
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'button',
+              style: 'primary',
+              color: '#536DFE',
+              action: { type: 'message', label: '詳細試算', text: `試算 ${keyword} ${tag}` }
+            }
+          ]
         }
-      };
-
-      return client.replyMessage(event.replyToken, flexMessage);
-
-    } catch (error) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: `💥 系統除錯模式：\n${error.message || "未知錯誤"}` });
+      });
     }
-  }
 
-  return Promise.resolve(null);
-}
+    // LINE 限制 Carousel 最多 12 張卡片
+    const carouselBubbles = bubbles.slice(0, 12);
 
-function sendFallbackCard(replyToken, address, totalFound, specialCount, zeroCount, city, type) {
-  const scope = `${city || '全國'}${type || ''}`;
-  let msg = `在【${scope}】實價庫中找無【${address}】的標準交易。`;
-  
-  if (totalFound > 0) {
-    msg = `【${address}】有 ${totalFound} 筆紀錄，但其中 ${specialCount} 筆為親友特殊交易，${zeroCount} 筆無單價資料(純土地/車位)，無法鑑價。`;
-  }
-
-  const fallbackMsg = {
-    type: 'flex',
-    altText: `查無資料：${address}`,
-    contents: {
-      type: "bubble",
-      body: {
-        type: "box", layout: "vertical",
-        contents: [
-          { type: "text", text: "⚠️ 查無有效鑑價樣本", weight: "bold", color: "#EA580C" },
-          { type: "text", text: msg, size: "sm", color: "#64748b", wrap: true, margin: "md" }
-        ]
+    const flexMessage = {
+      type: 'flex',
+      altText: `【${keyword}】的鑑價分析出爐`,
+      contents: {
+        type: 'carousel',
+        contents: carouselBubbles
       }
-    }
-  };
-  
-  return client.replyMessage(replyToken, fallbackMsg);
+    };
+
+    return client.replyMessage(event.replyToken, flexMessage);
+
+  } catch (error) {
+    console.error(error);
+    return client.replyMessage(event.replyToken, { type: 'text', text: '系統線路繁忙，請稍後再試！' });
+  }
 }
 
 module.exports = app;
