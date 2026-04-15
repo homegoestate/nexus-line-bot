@@ -31,7 +31,7 @@ async function handleEvent(event) {
   if (rawText.length < 2) return Promise.resolve(null); 
 
   // ==========================================
-  // 🌟 功能 A：攔截「詳細試算」按鈕，產出核貸報告
+  // 🌟 功能 A：攔截「詳細試算」按鈕
   // ==========================================
   if (rawText.startsWith('💰試算')) {
     try {
@@ -40,7 +40,11 @@ async function handleEvent(event) {
       const targetType = parts[1];
       const targetAgeGroup = parts[2];
 
-      const { data, error } = await supabase.from('real_estate_transactions').select('*').ilike('address', `%${keyword}%`);
+      const { data, error } = await supabase
+        .from('real_estate_transactions')
+        .select('*')
+        .or(`address.ilike.%${keyword}%,notes.ilike.%${keyword}%`);
+
       if (error || !data) throw error;
 
       let count = 0;
@@ -48,12 +52,16 @@ async function handleEvent(event) {
 
       data.forEach(item => {
         let ageGroup = '年份不詳';
-        if (item.building_age !== null) {
+        // 💡 核心升級：如果是預售屋，強制歸類為「預售指標」
+        if (item.transaction_type === '預售屋') {
+          ageGroup = '🚀 預售屋 (未來指標)';
+        } else if (item.building_age !== null) {
           if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
           else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
           else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
           else ageGroup = '20年以上 (老屋)';
         }
+
         if (item.building_type === targetType && ageGroup === targetAgeGroup) {
           count++;
           totalPrice += item.unit_price_sqm;
@@ -69,6 +77,10 @@ async function handleEvent(event) {
       const downPayment = totalEstimated - loan; 
       const monthlyIncome = (loan / 158).toFixed(1); 
 
+      // 針對預售屋，稍微調整卡片顏色讓它更顯眼
+      const isPresale = targetAgeGroup.includes('預售屋');
+      const accentColor = isPresale ? "#e74c3c" : "#536DFE"; // 預售屋用紅色強調
+
       const detailFlex = {
         type: "flex",
         altText: `${keyword} 詳細核貸試算`,
@@ -78,15 +90,15 @@ async function handleEvent(event) {
             type: "box", layout: "vertical", backgroundColor: "#1c2833",
             contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "md" },
-              { type: "text", text: "Open Data 鑑價引擎", color: "#f1c40f", size: "xs", margin: "sm" }
+              { type: "text", text: "社區/路段 鑑價引擎", color: "#f1c40f", size: "xs", margin: "sm" }
             ]
           },
           body: {
             type: "box", layout: "vertical",
             contents: [
               { type: "text", text: `📍 查詢標的 (${targetType})`, size: "xs", color: "#888888" },
-              { type: "text", text: keyword, size: "xxl", weight: "bold", margin: "sm" },
-              { type: "text", text: targetAgeGroup, size: "sm", color: "#536DFE", margin: "xs", weight: "bold" },
+              { type: "text", text: keyword, size: "xxl", weight: "bold", margin: "sm", wrap: true },
+              { type: "text", text: targetAgeGroup, size: "sm", color: accentColor, margin: "xs", weight: "bold" },
               { type: "separator", margin: "lg" },
               { type: "text", text: "📊 官方大數據演算法", size: "sm", weight: "bold", margin: "lg" },
               { type: "box", layout: "horizontal", margin: "md", contents: [
@@ -100,7 +112,7 @@ async function handleEvent(event) {
                 ]
               },
               { type: "separator", margin: "lg" },
-              { type: "text", text: "🏦 專業核貸試算 (以標準35坪計)", size: "sm", weight: "bold", margin: "lg" },
+              { type: "text", text: isPresale ? "🏦 預售交屋試算 (以標準35坪計)" : "🏦 專業核貸試算 (以標準35坪計)", size: "sm", weight: "bold", margin: "lg" },
               { type: "box", layout: "horizontal", margin: "md", contents: [
                   { type: "text", text: "預估標的總價", size: "sm", color: "#555555" },
                   { type: "text", text: `${totalEstimated} 萬`, size: "sm", weight: "bold", align: "end" }
@@ -112,7 +124,7 @@ async function handleEvent(event) {
                 ]
               },
               { type: "box", layout: "horizontal", margin: "md", contents: [
-                  { type: "text", text: "需準備自備款", size: "sm", color: "#555555" },
+                  { type: "text", text: isPresale ? "預估工程/頭期款" : "需準備自備款", size: "sm", color: "#555555" },
                   { type: "text", text: `${downPayment} 萬`, size: "sm", color: "#e67e22", weight: "bold", align: "end" }
                 ]
               },
@@ -125,7 +137,7 @@ async function handleEvent(event) {
           },
           footer: {
             type: "box", layout: "vertical", contents: [
-              { type: "button", style: "primary", color: "#536DFE", action: { type: "message", label: "條件符合？洽詢專屬低利專案", text: "我想洽詢房貸專案" } }
+              { type: "button", style: "primary", color: "#536DFE", action: { type: "message", label: "條件符合？洽詢專屬方案", text: "我想洽詢房貸專案" } }
             ]
           }
         }
@@ -139,9 +151,16 @@ async function handleEvent(event) {
   }
 
   // ==========================================
-  // 🌟 功能 B：加上「查價安全鎖」的一般搜尋
+  // 🌟 功能 B：攔截「專人服務」按鈕
   // ==========================================
-  // 如果使用者輸入的不是以「查價」或「估價」開頭，機器人直接裝死，讓 LINE 後台接手！
+  if (rawText === '我想洽詢房貸專案') {
+    const replyMsg = "您好！感謝您使用宏國地政的智能鑑價系統 🏦\n\n為了提供您最精準的專屬方案，請您留下：\n1. 您的稱呼\n2. 聯絡電話\n3. 欲諮詢的詳細路段或社區名稱\n\n我們的專業顧問將會在上班時間盡快與您聯繫！";
+    return client.replyMessage(event.replyToken, { type: 'text', text: replyMsg });
+  }
+
+  // ==========================================
+  // 🌟 功能 C：建案/路段 雙引擎搜尋 (支援預售屋分類)
+  // ==========================================
   if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) {
     return Promise.resolve(null);
   }
@@ -149,11 +168,15 @@ async function handleEvent(event) {
   const keyword = rawText.replace(/^(查價|估價)/, '').trim();
 
   if (keyword.length < 2) {
-    return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的路段名稱，例如：查價 海安路' });
+    return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱，例如：查價 海安路 或 查價 美術皇居' });
   }
 
   try {
-    const { data, error } = await supabase.from('real_estate_transactions').select('*').ilike('address', `%${keyword}%`);
+    const { data, error } = await supabase
+      .from('real_estate_transactions')
+      .select('*')
+      .or(`address.ilike.%${keyword}%,notes.ilike.%${keyword}%`);
+
     if (error) throw error;
     if (!data || data.length === 0) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 查無有效樣本\n在資料庫中找無包含【${keyword}】的標準交易。` });
@@ -163,7 +186,10 @@ async function handleEvent(event) {
 
     data.forEach(item => {
       let ageGroup = '年份不詳';
-      if (item.building_age !== null) {
+      // 💡 核心升級：分類時抽出預售屋
+      if (item.transaction_type === '預售屋') {
+        ageGroup = '🚀 預售屋 (未來指標)';
+      } else if (item.building_age !== null) {
         if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
         else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
         else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
@@ -181,15 +207,23 @@ async function handleEvent(event) {
 
     const bubbles = [];
 
-    for (const [tag, stats] of Object.entries(groupedData)) {
+    // 將預售屋排序到最前面 (增加客戶眼球吸引力)
+    const sortedEntries = Object.entries(groupedData).sort((a, b) => {
+      if (a[0].includes('預售屋')) return -1;
+      if (b[0].includes('預售屋')) return 1;
+      return 0;
+    });
+
+    for (const [tag, stats] of sortedEntries) {
       const avgPriceSqm = stats.totalPrice / stats.count;
       const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
+      const isPresale = stats.bAge.includes('預售屋');
 
       bubbles.push({
         type: 'bubble', size: 'micro',
         header: { type: 'box', layout: 'vertical', contents: [
-            { type: 'text', text: keyword, weight: 'bold', size: 'xl', color: '#111111' },
-            { type: 'text', text: stats.display, size: 'xs', color: '#888888', wrap: true }
+            { type: 'text', text: keyword, weight: 'bold', size: 'xl', color: '#111111', wrap: true },
+            { type: 'text', text: stats.display, size: 'xs', color: isPresale ? '#e74c3c' : '#888888', weight: isPresale ? 'bold' : 'regular', wrap: true }
           ]
         },
         body: { type: 'box', layout: 'vertical', contents: [
@@ -206,7 +240,7 @@ async function handleEvent(event) {
           ]
         },
         footer: { type: 'box', layout: 'vertical', contents: [
-            { type: 'button', style: 'primary', color: '#536DFE', action: { type: 'message', label: '詳細試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
+            { type: 'button', style: 'primary', color: isPresale ? '#e74c3c' : '#536DFE', action: { type: 'message', label: '詳細試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
           ]
         }
       });
