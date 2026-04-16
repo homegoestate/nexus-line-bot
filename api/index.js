@@ -22,7 +22,7 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-// 💡 胖數字轉換器 (把 810 變成 ８１０)
+// 💡 胖數字轉換器
 function toFullWidth(str) {
   return str.replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
 }
@@ -42,12 +42,25 @@ async function handleEvent(event) {
       const targetType = parts[1];
       const targetAgeGroup = parts[2];
 
-      const fullWidthKeyword = toFullWidth(keyword);
+      let searchKeyword = keyword;
+
+      // 🚨 修正核心：試算按鈕也要先查雲端字典！
+      const { data: dictData, error: dictError } = await supabase
+        .from('community_dictionary')
+        .select('address_keyword')
+        .ilike('community_name', `%${keyword}%`)
+        .limit(1);
+
+      if (!dictError && dictData && dictData.length > 0) {
+        searchKeyword = dictData[0].address_keyword; // 找到對應地址
+      }
+
+      const fullWidthKeyword = toFullWidth(searchKeyword);
 
       const { data, error } = await supabase
         .from('real_estate_transactions')
         .select('*')
-        .or(`address.ilike.%${keyword}%,notes.ilike.%${keyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`);
+        .or(`address.ilike.%${searchKeyword}%,notes.ilike.%${searchKeyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`);
 
       if (error || !data) throw error;
 
@@ -119,7 +132,7 @@ async function handleEvent(event) {
                 ]
               },
               { type: "box", layout: "horizontal", margin: "md", contents: [
-                  { type: "text", text: isPresale ? "預估工程/頭期款" : "需準備自備款", size: "sm", color: "#555555" },
+                  { type: "text", text: "需準備工程/自備款", size: "sm", color: "#555555" },
                   { type: "text", text: `${downPayment} 萬`, size: "sm", color: "#e67e22", weight: "bold", align: "end" }
                 ]
               },
@@ -160,12 +173,12 @@ async function handleEvent(event) {
       .limit(1);
 
     if (!dictError && dictData && dictData.length > 0) {
-      searchKeyword = dictData[0].address_keyword; // 找到字典對應後，自動轉換成正確路段去搜實價登錄 [cite: 1, 4, 7]
+      searchKeyword = dictData[0].address_keyword; // 找到字典對應後，自動轉換成正確路段去搜實價登錄
     }
 
     const fullWidthKeyword = toFullWidth(searchKeyword);
 
-    // 💡 2. 去 160 萬筆實價登錄資料庫撈數據
+    // 💡 2. 去實價登錄資料庫撈數據
     const { data, error } = await supabase
       .from('real_estate_transactions')
       .select('*')
