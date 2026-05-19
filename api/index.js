@@ -33,7 +33,7 @@ async function handleEvent(event) {
   if (rawText.length < 2) return Promise.resolve(null); 
 
   // ==========================================
-  // 🌟 功能 A：攔截「詳細試算」按鈕
+  // 🌟 功能 A：詳細試算 (加入髒資料動態濾水器)
   // ==========================================
   if (rawText.startsWith('💰試算')) {
     try {
@@ -66,9 +66,13 @@ async function handleEvent(event) {
       let totalPrice = 0;
 
       data.forEach(item => {
+        let bType = item.building_type;
+        // 🚨 濾水器：將「其他」或空白強制歸類為「土地」
+        if (!bType || bType === '其他' || bType.trim() === '') bType = '土地';
+
         let ageGroup = '年份不詳';
-        if (item.building_type === '土地') ageGroup = '🌲 素地/開發價值';
-        else if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
+        if (bType === '土地') ageGroup = '🌲 素地/開發價值';
+        else if (item.transaction_type === '預售屋' || bType === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
         else if (item.building_age !== null) {
           if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
           else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
@@ -76,7 +80,7 @@ async function handleEvent(event) {
           else ageGroup = '20年以上 (老屋)';
         }
         
-        if (item.building_type === targetType && ageGroup === targetAgeGroup) {
+        if (bType === targetType && ageGroup === targetAgeGroup) {
           count++;
           totalPrice += item.unit_price_sqm;
         }
@@ -89,7 +93,7 @@ async function handleEvent(event) {
       
       let confidenceLevel = "C級 (趨勢參考)";
       let confidenceColor = "#e67e22"; 
-      let consultantNote = "⚠️ 樣本數低於5筆，產品屬性可能混雜。建議提供謄本由楊代書人工精估，避免核貸落差。";
+      let consultantNote = "⚠️ 樣本數低於5筆，產品屬性可能混雜。建議提供謄本由易丞地政人工精估，避免核貸落差。";
       
       if (count >= 10) {
         confidenceLevel = "A級 (高度可信)";
@@ -164,7 +168,7 @@ async function handleEvent(event) {
             ]
           },
           body: { type: "box", layout: "vertical", contents: [
-              { type: "text", text: `📍 查詢標的`, size: "xs", color: "#888888" },
+              { type: "text", text: `📍 查詢標的 (${targetType})`, size: "xs", color: "#888888" },
               { type: "text", text: keyword, size: "xl", weight: "bold", margin: "sm", wrap: true },
               { type: "text", text: targetAgeGroup, size: "sm", color: accentColor, margin: "xs", weight: "bold" },
               { type: "box", layout: "horizontal", margin: "lg", contents: [
@@ -213,12 +217,12 @@ async function handleEvent(event) {
       };
       return client.replyMessage(event.replyToken, detailFlex);
     } catch (error) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: '系統線路繁忙，請稍後再試！' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '系統發生錯誤，請稍後再試！' });
     }
   }
 
   // ==========================================
-  // 🌟 功能 B：雲端字典轉換 + 胖胖數字引擎
+  // 🌟 功能 B：前台總覽查詢
   // ==========================================
   if (!rawText.startsWith('查價') && !rawText.startsWith('估價') && !rawText.startsWith('查地價')) return Promise.resolve(null);
   let keyword = rawText.replace(/^(查價|估價|查地價)/, '').replace(/\s+/g, '').trim();
@@ -246,19 +250,21 @@ async function handleEvent(event) {
 
     if (error) throw error;
     
-    // 🚨 捕蚊燈觸發區：如果查無資料，立刻偷偷寫入 Supabase
+    // 捕蚊燈
     if (!data || data.length === 0) {
-      
       await supabase.from('failed_queries').insert([{ keyword: keyword }]);
-
       return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 系統提示：本次查詢樣本不足\n在公開資料庫中未匹配到足夠的標準交易。\n\n💡【顧問提醒】若強行計算平均單價，極易產生精準假象與核貸落差。\n\n若您需判斷可售價格、銀行估價或土地開發價值，建議直接提供「謄本」或「權狀」，由宏國地政｜易丞地政為您進行專案精估。` });
     }
 
     const groupedData = {};
     data.forEach(item => {
+      let bType = item.building_type;
+      // 🚨 濾水器：將「其他」或空白強制歸類為「土地」
+      if (!bType || bType === '其他' || bType.trim() === '') bType = '土地';
+
       let ageGroup = '年份不詳';
-      if (item.building_type === '土地') ageGroup = '🌲 素地/開發價值';
-      else if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
+      if (bType === '土地') ageGroup = '🌲 素地/開發價值';
+      else if (item.transaction_type === '預售屋' || bType === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
       else if (item.building_age !== null) {
         if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
         else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
@@ -266,9 +272,9 @@ async function handleEvent(event) {
         else ageGroup = '20年以上 (老屋)';
       }
 
-      const tag = `${item.building_type}_${ageGroup}`;
-      const displayTag = `${item.building_type} | ${ageGroup}`;
-      if (!groupedData[tag]) groupedData[tag] = { count: 0, totalPrice: 0, display: displayTag, bType: item.building_type, bAge: ageGroup };
+      const tag = `${bType}_${ageGroup}`;
+      const displayTag = `${bType} | ${ageGroup}`;
+      if (!groupedData[tag]) groupedData[tag] = { count: 0, totalPrice: 0, display: displayTag, bType: bType, bAge: ageGroup };
       groupedData[tag].count += 1;
       groupedData[tag].totalPrice += item.unit_price_sqm; 
     });
