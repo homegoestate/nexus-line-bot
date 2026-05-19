@@ -33,6 +33,23 @@ async function handleEvent(event) {
   if (rawText.length < 2) return Promise.resolve(null); 
 
   // ==========================================
+  // 🌟 功能：攔截土地開發高價值客戶 (楊總專屬顧問話術)
+  // ==========================================
+  if (rawText === '我想洽詢土地開發評估與分區查詢') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '🌲 【土地開發與分區專案評估】\n\n您好！土地的開發價值，需要精準確認【使用分區】、【臨路條件】、【建蔽容積率】與【產權狀態】。\n\n為了讓宏國地政｜易丞地政能為您進行初步的專業評估，請協助直接回傳：\n\n1. 標的所在【行政區、段名、地號】\n   （例如：安南區 國安段 15地號）\n2. 或直接拍照上傳【土地所有權狀】\n\n收到資料後，我們將由專人為您啟動高階評估流程！'
+    });
+  }
+
+  if (rawText === '我想委託調閱地籍資料') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '📄 【委託調閱官方地籍資料】\n\n您好！調閱最新謄本與地籍圖，能幫您確認最真實的產權淨空狀態與抵押設定，防範交易風險。\n\n請直接回傳您想調閱的：\n👉 【行政區、段名、地號】或【完整門牌】\n（若不知地號，可直接傳送權狀截圖）\n\n📌 顧問提示：\n向地政機關調閱官方資料將產生政府規費。請留下您的聯絡電話，確認標的後，我們將向您說明調閱明細與代辦流程。'
+    });
+  }
+
+  // ==========================================
   // 🌟 功能 A：詳細試算 (加入髒資料動態濾水器)
   // ==========================================
   if (rawText.startsWith('💰試算')) {
@@ -67,7 +84,6 @@ async function handleEvent(event) {
 
       data.forEach(item => {
         let bType = item.building_type;
-        // 🚨 濾水器：將「其他」或空白強制歸類為「土地」
         if (!bType || bType === '其他' || bType.trim() === '') bType = '土地';
 
         let ageGroup = '年份不詳';
@@ -259,7 +275,6 @@ async function handleEvent(event) {
     const groupedData = {};
     data.forEach(item => {
       let bType = item.building_type;
-      // 🚨 濾水器：將「其他」或空白強制歸類為「土地」
       if (!bType || bType === '其他' || bType.trim() === '') bType = '土地';
 
       let ageGroup = '年份不詳';
