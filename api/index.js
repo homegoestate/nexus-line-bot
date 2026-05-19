@@ -22,12 +22,9 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-// 💡 胖數字轉換器 (楊總專屬增強版：處理空白、台臺轉換)
 function toFullWidth(str) {
   if (!str) return '';
-  return str.replace(/\s+/g, '') // 徹底拔除所有空白
-            .replace(/台/g, '臺') // 統一轉為官方用的「臺」
-            .replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
+  return str.replace(/\s+/g, '').replace(/台/g, '臺').replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
 }
 
 async function handleEvent(event) {
@@ -36,7 +33,7 @@ async function handleEvent(event) {
   if (rawText.length < 2) return Promise.resolve(null); 
 
   // ==========================================
-  // 🌟 功能 A：攔截「詳細試算」按鈕
+  // 🌟 功能 A：攔截「詳細試算」按鈕 (含可信度與土地判斷)
   // ==========================================
   if (rawText.startsWith('💰試算')) {
     try {
@@ -46,19 +43,19 @@ async function handleEvent(event) {
       const targetAgeGroup = parts[2];
 
       let searchKeyword = keyword;
-
-      const { data: dictData, error: dictError } = await supabase
+      
+      // 支援別名搜尋
+      const { data: dictData } = await supabase
         .from('community_dictionary')
-        .select('address_keyword')
-        .ilike('community_name', `%${keyword}%`)
+        .select('*')
+        .or(`community_name.ilike.%${keyword}%,alias_names.ilike.%${keyword}%`)
         .limit(1);
 
-      if (!dictError && dictData && dictData.length > 0) {
+      if (dictData && dictData.length > 0) {
         searchKeyword = dictData[0].address_keyword; 
       }
 
       const fullWidthKeyword = toFullWidth(searchKeyword);
-
       const { data, error } = await supabase
         .from('real_estate_transactions')
         .select('*')
@@ -68,56 +65,117 @@ async function handleEvent(event) {
 
       let count = 0;
       let totalPrice = 0;
+      let priceArray = [];
 
       data.forEach(item => {
         let ageGroup = '年份不詳';
-        // 🚨 試算功能同步加入土地判斷
-        if (item.building_type === '土地') {
-          ageGroup = '🌲 素地/開發價值';
-        } else if (item.transaction_type === '預售屋') {
-          ageGroup = '🚀 預售屋 (未來指標)';
-        } else if (item.building_age !== null) {
+        if (item.building_type === '土地') ageGroup = '🌲 素地/開發價值';
+        else if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
+        else if (item.building_age !== null) {
           if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
           else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
           else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
           else ageGroup = '20年以上 (老屋)';
         }
+        
         if (item.building_type === targetType && ageGroup === targetAgeGroup) {
           count++;
           totalPrice += item.unit_price_sqm;
+          priceArray.push(item.unit_price_sqm);
         }
       });
 
-      if (count === 0) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 查無資料' });
+      if (count === 0) return client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ 查無足夠資料進行試算' });
 
       const avgPriceSqm = totalPrice / count;
       const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
+      
+      // 💡 核心升級：可信度分級判定
+      let confidenceLevel = "C級 (趨勢參考)";
+      let confidenceColor = "#e67e22"; // 橘色
+      let consultantNote = "⚠️ 樣本數低於5筆，產品屬性可能混雜。建議提供謄本由楊代書人工精估，避免核貸落差。";
+      
+      if (count >= 10) {
+        confidenceLevel = "A級 (高度可信)";
+        confidenceColor = "#27ae60"; // 綠色
+        consultantNote = "✅ 樣本充足，此數據可作為出價與銀行核貸之重要參考依據。";
+      } else if (count >= 5) {
+        confidenceLevel = "B級 (初步行情)";
+        confidenceColor = "#3498db"; // 藍色
+        consultantNote = "💡 具備初步參考價值，實際貸款額度仍需視個人財力與屋況而定。";
+      }
+
+      // 🌲 如果是土地，顯示專屬的 CTA 與版面
+      if (targetType === '土地') {
+        const detailFlex = {
+          type: "flex", altText: `${keyword} 土地開發評估`,
+          contents: {
+            type: "bubble",
+            header: { type: "box", layout: "vertical", backgroundColor: "#1c2833", contents: [
+                { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "md" },
+                { type: "text", text: "不動產成交前評估系統", color: "#f1c40f", size: "xs", margin: "sm" }
+              ]
+            },
+            body: { type: "box", layout: "vertical", contents: [
+                { type: "text", text: `📍 查詢區域/路段 (土地)`, size: "xs", color: "#888888" },
+                { type: "text", text: keyword, size: "xl", weight: "bold", margin: "sm", wrap: true },
+                { type: "separator", margin: "lg" },
+                { type: "box", layout: "horizontal", margin: "md", contents: [
+                    { type: "text", text: "有效交易樣本", size: "sm", color: "#555555" },
+                    { type: "text", text: `${count} 筆`, size: "sm", weight: "bold", align: "end" }
+                  ]
+                },
+                { type: "box", layout: "horizontal", margin: "md", contents: [
+                    { type: "text", text: "土地均價", size: "sm", color: "#555555" },
+                    { type: "text", text: `約 ${avgPricePing} 萬/坪`, size: "sm", color: "#00B900", weight: "bold", align: "end" }
+                  ]
+                },
+                { type: "box", layout: "horizontal", margin: "md", contents: [
+                    { type: "text", text: "數據可信度", size: "sm", color: "#555555" },
+                    { type: "text", text: confidenceLevel, size: "sm", color: confidenceColor, weight: "bold", align: "end" }
+                  ]
+                },
+                { type: "box", layout: "vertical", margin: "lg", backgroundColor: "#f4f6f7", cornerRadius: "md", paddingAll: "md", contents: [
+                    { type: "text", text: "💡 顧問提醒：", size: "sm", weight: "bold", color: "#333333" },
+                    { type: "text", text: "土地價格受臨路寬度、使用分區、地形與產權完整性影響極大。系統均價僅供初步參考，嚴禁直接套用於開發決策。", size: "xs", color: "#666666", wrap: true, margin: "xs" }
+                  ]
+                }
+              ]
+            },
+            footer: { type: "box", layout: "vertical", spacing: "sm", contents: [
+                { type: "button", style: "primary", color: "#27ae60", action: { type: "message", label: "🗺️ 洽詢土地開發/整合評估", text: "我想洽詢土地開發評估與分區查詢" } },
+                { type: "button", style: "secondary", action: { type: "message", label: "📄 委託調閱謄本與地籍圖", text: "我想委託調閱地籍資料" } }
+              ]
+            }
+          }
+        };
+        return client.replyMessage(event.replyToken, detailFlex);
+      }
+
+      // 🏢 一般房屋的專業核貸試算卡片
       const totalEstimated = Math.round(avgPricePing * 35); 
       const loan = Math.round(totalEstimated * 0.8); 
       const downPayment = totalEstimated - loan; 
       const monthlyIncome = (loan / 158).toFixed(1); 
-
       const isPresale = targetAgeGroup.includes('預售屋');
       const accentColor = isPresale ? "#e74c3c" : "#536DFE"; 
 
       const detailFlex = {
-        type: "flex", altText: `${keyword} 詳細核貸試算`,
+        type: "flex", altText: `${keyword} 專業核貸試算`,
         contents: {
           type: "bubble",
           header: { type: "box", layout: "vertical", backgroundColor: "#1c2833", contents: [
               { type: "text", text: "宏國地政 | 易丞地政", color: "#ffffff", weight: "bold", size: "md" },
-              { type: "text", text: "社區/路段 鑑價引擎", color: "#f1c40f", size: "xs", margin: "sm" }
+              { type: "text", text: "不動產成交前評估系統", color: "#f1c40f", size: "xs", margin: "sm" }
             ]
           },
           body: { type: "box", layout: "vertical", contents: [
               { type: "text", text: `📍 查詢標的 (${targetType})`, size: "xs", color: "#888888" },
-              { type: "text", text: keyword, size: "xxl", weight: "bold", margin: "sm", wrap: true },
+              { type: "text", text: keyword, size: "xl", weight: "bold", margin: "sm", wrap: true },
               { type: "text", text: targetAgeGroup, size: "sm", color: accentColor, margin: "xs", weight: "bold" },
-              { type: "separator", margin: "lg" },
-              { type: "text", text: "📊 官方大數據演算法", size: "sm", weight: "bold", margin: "lg" },
-              { type: "box", layout: "horizontal", margin: "md", contents: [
-                  { type: "text", text: "有效交易樣本", size: "sm", color: "#555555" },
-                  { type: "text", text: `${count} 筆`, size: "sm", weight: "bold", align: "end" }
+              { type: "box", layout: "horizontal", margin: "lg", contents: [
+                  { type: "text", text: "數據可信度", size: "sm", color: "#555555" },
+                  { type: "text", text: confidenceLevel, size: "sm", color: confidenceColor, weight: "bold", align: "end" }
                 ]
               },
               { type: "box", layout: "horizontal", margin: "md", contents: [
@@ -126,7 +184,7 @@ async function handleEvent(event) {
                 ]
               },
               { type: "separator", margin: "lg" },
-              { type: "text", text: isPresale ? "🏦 預售交屋試算 (以標準35坪計)" : "🏦 專業核貸試算 (以標準35坪計)", size: "sm", weight: "bold", margin: "lg" },
+              { type: "text", text: isPresale ? "🏦 預售交屋試算 (以標準35坪計)" : "🏦 銀行核貸試算 (以標準35坪計)", size: "sm", weight: "bold", margin: "lg" },
               { type: "box", layout: "horizontal", margin: "md", contents: [
                   { type: "text", text: "預估標的總價", size: "sm", color: "#555555" },
                   { type: "text", text: `${totalEstimated} 萬`, size: "sm", weight: "bold", align: "end" }
@@ -138,46 +196,50 @@ async function handleEvent(event) {
                 ]
               },
               { type: "box", layout: "horizontal", margin: "md", contents: [
-                  { type: "text", text: "需準備工程/自備款", size: "sm", color: "#555555" },
+                  { type: "text", text: "需準備自備款", size: "sm", color: "#555555" },
                   { type: "text", text: `${downPayment} 萬`, size: "sm", color: "#e67e22", weight: "bold", align: "end" }
                 ]
               },
-              { type: "box", layout: "horizontal", margin: "lg", backgroundColor: "#f4f6f7", cornerRadius: "md", paddingAll: "md", contents: [
-                  { type: "text", text: "💡 建議月收入達", size: "sm", color: "#555555" },
-                  { type: "text", text: `${monthlyIncome} 萬以上`, size: "sm", weight: "bold", align: "end" }
+              { type: "box", layout: "vertical", margin: "lg", backgroundColor: "#f4f6f7", cornerRadius: "md", paddingAll: "md", contents: [
+                  { type: "text", text: consultantNote, size: "xs", color: "#555555", wrap: true, margin: "xs" },
+                  { type: "separator", margin: "sm" },
+                  { type: "box", layout: "horizontal", margin: "sm", contents: [
+                      { type: "text", text: "💡 建議月收入達", size: "sm", color: "#333333", weight: "bold" },
+                      { type: "text", text: `${monthlyIncome} 萬以上`, size: "sm", color: "#e74c3c", weight: "bold", align: "end" }
+                  ]}
                 ]
               }
             ]
           },
           footer: { type: "box", layout: "vertical", contents: [
-              { type: "button", style: "primary", color: "#536DFE", action: { type: "message", label: "條件符合？洽詢專屬方案", text: "我想洽詢房貸專案" } }
+              { type: "button", style: "primary", color: "#536DFE", action: { type: "message", label: "🏦 條件符合？洽詢專屬房貸方案", text: "我想洽詢銀行核貸與產權過戶" } }
             ]
           }
         }
       };
       return client.replyMessage(event.replyToken, detailFlex);
     } catch (error) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: '試算發生錯誤，請稍後再試！' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '系統線路繁忙，請稍後再試！' });
     }
   }
 
   // ==========================================
   // 🌟 功能 B：雲端字典轉換 + 胖胖數字引擎
   // ==========================================
-  if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) return Promise.resolve(null);
-  let keyword = rawText.replace(/^(查價|估價)/, '').replace(/\s+/g, '').trim();
+  if (!rawText.startsWith('查價') && !rawText.startsWith('估價') && !rawText.startsWith('查地價')) return Promise.resolve(null);
+  let keyword = rawText.replace(/^(查價|估價|查地價)/, '').replace(/\s+/g, '').trim();
   if (keyword.length < 2) return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱！' });
 
   let searchKeyword = keyword;
 
   try {
-    const { data: dictData, error: dictError } = await supabase
+    const { data: dictData } = await supabase
       .from('community_dictionary')
       .select('address_keyword')
-      .ilike('community_name', `%${keyword}%`)
+      .or(`community_name.ilike.%${keyword}%,alias_names.ilike.%${keyword}%`)
       .limit(1);
 
-    if (!dictError && dictData && dictData.length > 0) {
+    if (dictData && dictData.length > 0) {
       searchKeyword = dictData[0].address_keyword; 
     }
 
@@ -190,19 +252,15 @@ async function handleEvent(event) {
 
     if (error) throw error;
     if (!data || data.length === 0) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 查無有效樣本\n在資料庫中找無包含【${keyword}】的標準交易。\n\n這代表該區房產釋出極少，具備高度稀缺性！為維護鑑價準確度，建議由【易丞地政】為您進行專案精估。\n👉 請直接傳送「權狀」或「謄本」截圖，我們將優先為您處理！` });
+      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 系統提示：本次查詢樣本不足\n在公開資料庫中未匹配到足夠的標準交易。\n\n💡【顧問提醒】若強行計算平均單價，極易產生精準假象與核貸落差。\n\n若您需判斷可售價格、銀行估價或土地開發價值，建議直接提供「謄本」或「權狀」，由宏國地政｜易丞地政為您進行專案精估。` });
     }
 
     const groupedData = {};
     data.forEach(item => {
       let ageGroup = '年份不詳';
-      
-      // 🚨 楊總專屬：新增「土地」高速分類通道
-      if (item.building_type === '土地') {
-        ageGroup = '🌲 素地/開發價值';
-      } else if (item.transaction_type === '預售屋') {
-        ageGroup = '🚀 預售屋 (未來指標)';
-      } else if (item.building_age !== null) {
+      if (item.building_type === '土地') ageGroup = '🌲 素地/開發價值';
+      else if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
+      else if (item.building_age !== null) {
         if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
         else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
         else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
@@ -228,18 +286,20 @@ async function handleEvent(event) {
       const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
       const isPresale = stats.bAge.includes('預售屋');
       const isLand = stats.bType === '土地';
+      
+      let tagColor = isPresale ? '#e74c3c' : (isLand ? '#27ae60' : '#888888');
 
       bubbles.push({
         type: 'bubble', size: 'micro',
         header: { type: 'box', layout: 'vertical', contents: [
             { type: 'text', text: keyword, weight: 'bold', size: 'xl', color: '#111111', wrap: true },
-            { type: 'text', text: stats.display, size: 'xs', color: isPresale ? '#e74c3c' : (isLand ? '#27ae60' : '#888888'), weight: (isPresale || isLand) ? 'bold' : 'regular', wrap: true }
+            { type: 'text', text: stats.display, size: 'xs', color: tagColor, weight: 'bold', wrap: true }
           ]
         },
         body: { type: 'box', layout: 'vertical', contents: [
             { type: "box", layout: "horizontal", contents: [
                 { type: "text", text: "有效樣本", size: "sm", color: "#555555", flex: 2 },
-                { type: "text", text: `${stats.count} 筆`, size: "sm", color: "#111111", align: "end", weight: "bold", flex: 1 }
+                { type: "text", text: `${stats.count} 筆`, size: "sm", color: stats.count < 5 ? "#e67e22" : "#111111", align: "end", weight: "bold", flex: 1 }
               ]
             },
             { type: "box", layout: "horizontal", margin: "md", contents: [
@@ -250,14 +310,14 @@ async function handleEvent(event) {
           ]
         },
         footer: { type: 'box', layout: 'vertical', contents: [
-            { type: 'button', style: 'primary', color: isPresale ? '#e74c3c' : (isLand ? '#27ae60' : '#536DFE'), action: { type: 'message', label: '詳細試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
+            { type: 'button', style: 'primary', color: tagColor !== '#888888' ? tagColor : '#536DFE', action: { type: 'message', label: isLand ? '地價開發評估' : '詳細核貸試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
           ]
         }
       });
     }
 
     const carouselBubbles = bubbles.slice(0, 12); 
-    return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的鑑價分析出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
+    return client.replyMessage(event.replyToken, { type: 'flex', altText: `【${keyword}】的成交前評估出爐`, contents: { type: 'carousel', contents: carouselBubbles } });
 
   } catch (error) {
     return client.replyMessage(event.replyToken, { type: 'text', text: '系統線路繁忙，請稍後再試！' });
