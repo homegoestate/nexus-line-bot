@@ -47,7 +47,6 @@ async function handleEvent(event) {
 
       let searchKeyword = keyword;
 
-      // 🚨 修正核心：試算按鈕也要先查雲端字典！
       const { data: dictData, error: dictError } = await supabase
         .from('community_dictionary')
         .select('address_keyword')
@@ -55,7 +54,7 @@ async function handleEvent(event) {
         .limit(1);
 
       if (!dictError && dictData && dictData.length > 0) {
-        searchKeyword = dictData[0].address_keyword; // 找到對應地址
+        searchKeyword = dictData[0].address_keyword; 
       }
 
       const fullWidthKeyword = toFullWidth(searchKeyword);
@@ -72,8 +71,12 @@ async function handleEvent(event) {
 
       data.forEach(item => {
         let ageGroup = '年份不詳';
-        if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
-        else if (item.building_age !== null) {
+        // 🚨 試算功能同步加入土地判斷
+        if (item.building_type === '土地') {
+          ageGroup = '🌲 素地/開發價值';
+        } else if (item.transaction_type === '預售屋') {
+          ageGroup = '🚀 預售屋 (未來指標)';
+        } else if (item.building_age !== null) {
           if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
           else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
           else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
@@ -168,7 +171,6 @@ async function handleEvent(event) {
   let searchKeyword = keyword;
 
   try {
-    // 💡 1. 直接連到您的 Supabase 雲端字典查詢！
     const { data: dictData, error: dictError } = await supabase
       .from('community_dictionary')
       .select('address_keyword')
@@ -176,12 +178,11 @@ async function handleEvent(event) {
       .limit(1);
 
     if (!dictError && dictData && dictData.length > 0) {
-      searchKeyword = dictData[0].address_keyword; // 找到字典對應後，自動轉換成正確路段去搜實價登錄
+      searchKeyword = dictData[0].address_keyword; 
     }
 
     const fullWidthKeyword = toFullWidth(searchKeyword);
 
-    // 💡 2. 去實價登錄資料庫撈數據
     const { data, error } = await supabase
       .from('real_estate_transactions')
       .select('*')
@@ -189,19 +190,25 @@ async function handleEvent(event) {
 
     if (error) throw error;
     if (!data || data.length === 0) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 查無有效樣本\n在資料庫中找無包含【${keyword}】的標準交易。` });
+      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 查無有效樣本\n在資料庫中找無包含【${keyword}】的標準交易。\n\n這代表該區房產釋出極少，具備高度稀缺性！為維護鑑價準確度，建議由【易丞地政】為您進行專案精估。\n👉 請直接傳送「權狀」或「謄本」截圖，我們將優先為您處理！` });
     }
 
     const groupedData = {};
     data.forEach(item => {
       let ageGroup = '年份不詳';
-      if (item.transaction_type === '預售屋') ageGroup = '🚀 預售屋 (未來指標)';
-      else if (item.building_age !== null) {
+      
+      // 🚨 楊總專屬：新增「土地」高速分類通道
+      if (item.building_type === '土地') {
+        ageGroup = '🌲 素地/開發價值';
+      } else if (item.transaction_type === '預售屋') {
+        ageGroup = '🚀 預售屋 (未來指標)';
+      } else if (item.building_age !== null) {
         if (item.building_age <= 5) ageGroup = '0-5年 (新成屋)';
         else if (item.building_age <= 10) ageGroup = '5-10年 (新古屋)';
         else if (item.building_age <= 20) ageGroup = '10-20年 (中古屋)';
         else ageGroup = '20年以上 (老屋)';
       }
+
       const tag = `${item.building_type}_${ageGroup}`;
       const displayTag = `${item.building_type} | ${ageGroup}`;
       if (!groupedData[tag]) groupedData[tag] = { count: 0, totalPrice: 0, display: displayTag, bType: item.building_type, bAge: ageGroup };
@@ -220,12 +227,13 @@ async function handleEvent(event) {
       const avgPriceSqm = stats.totalPrice / stats.count;
       const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
       const isPresale = stats.bAge.includes('預售屋');
+      const isLand = stats.bType === '土地';
 
       bubbles.push({
         type: 'bubble', size: 'micro',
         header: { type: 'box', layout: 'vertical', contents: [
             { type: 'text', text: keyword, weight: 'bold', size: 'xl', color: '#111111', wrap: true },
-            { type: 'text', text: stats.display, size: 'xs', color: isPresale ? '#e74c3c' : '#888888', weight: isPresale ? 'bold' : 'regular', wrap: true }
+            { type: 'text', text: stats.display, size: 'xs', color: isPresale ? '#e74c3c' : (isLand ? '#27ae60' : '#888888'), weight: (isPresale || isLand) ? 'bold' : 'regular', wrap: true }
           ]
         },
         body: { type: 'box', layout: 'vertical', contents: [
@@ -242,7 +250,7 @@ async function handleEvent(event) {
           ]
         },
         footer: { type: 'box', layout: 'vertical', contents: [
-            { type: 'button', style: 'primary', color: isPresale ? '#e74c3c' : '#536DFE', action: { type: 'message', label: '詳細試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
+            { type: 'button', style: 'primary', color: isPresale ? '#e74c3c' : (isLand ? '#27ae60' : '#536DFE'), action: { type: 'message', label: '詳細試算', text: `💰試算 ${keyword}_${stats.bType}_${stats.bAge}` } }
           ]
         }
       });
