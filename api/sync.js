@@ -38,19 +38,25 @@ module.exports = async function handler(req, res) {
         age = transYear - buildYear;
       }
 
+      // 🚨 楊總專屬：土地判定邏輯 (內政部建構型態為空值時，自動標記為土地)
+      let bType = item['建物型態'];
+      if (!bType || bType.trim() === '') {
+        bType = '土地'; 
+      }
+
       rowsToInsert.push({
         address: item['土地區段位置建物門牌'].replace(/\s+/g, ''),
         notes: item['備註'] || '',
-        transaction_type: item['建物型態'],
+        transaction_type: bType, // 替換為土地標籤
         building_age: age > 0 ? age : 0,
-        building_type: item['建物型態'], // 依照您原本的架構
+        building_type: bType,    // 替換為土地標籤
         unit_price_sqm: unitPriceSqm,
         transaction_date: item['交易年月'],
         total_price: Math.round(parseFloat(item['總價元']) / 10000)
       });
     }
 
-    // 寫入 Supabase (請確認您的 table 有設 unique 避免重複)
+    // 寫入 Supabase
     const { error } = await supabase.from('real_estate_transactions').upsert(rowsToInsert, { onConflict: 'address,transaction_date,total_price' });
     if (error) throw error;
 
