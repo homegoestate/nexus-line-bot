@@ -33,7 +33,7 @@ async function handleEvent(event) {
   if (rawText.length < 2) return Promise.resolve(null); 
 
   // ==========================================
-  // 🌟 功能 A：攔截「詳細試算」按鈕 (含可信度與土地判斷)
+  // 🌟 功能 A：攔截「詳細試算」按鈕
   // ==========================================
   if (rawText.startsWith('💰試算')) {
     try {
@@ -44,7 +44,6 @@ async function handleEvent(event) {
 
       let searchKeyword = keyword;
       
-      // 支援別名搜尋
       const { data: dictData } = await supabase
         .from('community_dictionary')
         .select('*')
@@ -65,7 +64,6 @@ async function handleEvent(event) {
 
       let count = 0;
       let totalPrice = 0;
-      let priceArray = [];
 
       data.forEach(item => {
         let ageGroup = '年份不詳';
@@ -81,7 +79,6 @@ async function handleEvent(event) {
         if (item.building_type === targetType && ageGroup === targetAgeGroup) {
           count++;
           totalPrice += item.unit_price_sqm;
-          priceArray.push(item.unit_price_sqm);
         }
       });
 
@@ -90,22 +87,20 @@ async function handleEvent(event) {
       const avgPriceSqm = totalPrice / count;
       const avgPricePing = (avgPriceSqm * 3.30579 / 10000).toFixed(1); 
       
-      // 💡 核心升級：可信度分級判定
       let confidenceLevel = "C級 (趨勢參考)";
-      let confidenceColor = "#e67e22"; // 橘色
+      let confidenceColor = "#e67e22"; 
       let consultantNote = "⚠️ 樣本數低於5筆，產品屬性可能混雜。建議提供謄本由楊代書人工精估，避免核貸落差。";
       
       if (count >= 10) {
         confidenceLevel = "A級 (高度可信)";
-        confidenceColor = "#27ae60"; // 綠色
+        confidenceColor = "#27ae60"; 
         consultantNote = "✅ 樣本充足，此數據可作為出價與銀行核貸之重要參考依據。";
       } else if (count >= 5) {
         confidenceLevel = "B級 (初步行情)";
-        confidenceColor = "#3498db"; // 藍色
+        confidenceColor = "#3498db"; 
         consultantNote = "💡 具備初步參考價值，實際貸款額度仍需視個人財力與屋況而定。";
       }
 
-      // 🌲 如果是土地，顯示專屬的 CTA 與版面
       if (targetType === '土地') {
         const detailFlex = {
           type: "flex", altText: `${keyword} 土地開發評估`,
@@ -152,7 +147,6 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, detailFlex);
       }
 
-      // 🏢 一般房屋的專業核貸試算卡片
       const totalEstimated = Math.round(avgPricePing * 35); 
       const loan = Math.round(totalEstimated * 0.8); 
       const downPayment = totalEstimated - loan; 
@@ -170,7 +164,7 @@ async function handleEvent(event) {
             ]
           },
           body: { type: "box", layout: "vertical", contents: [
-              { type: "text", text: `📍 查詢標的 (${targetType})`, size: "xs", color: "#888888" },
+              { type: "text", text: `📍 查詢標的`, size: "xs", color: "#888888" },
               { type: "text", text: keyword, size: "xl", weight: "bold", margin: "sm", wrap: true },
               { type: "text", text: targetAgeGroup, size: "sm", color: accentColor, margin: "xs", weight: "bold" },
               { type: "box", layout: "horizontal", margin: "lg", contents: [
@@ -251,7 +245,12 @@ async function handleEvent(event) {
       .or(`address.ilike.%${searchKeyword}%,notes.ilike.%${searchKeyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`);
 
     if (error) throw error;
+    
+    // 🚨 捕蚊燈觸發區：如果查無資料，立刻偷偷寫入 Supabase
     if (!data || data.length === 0) {
+      
+      await supabase.from('failed_queries').insert([{ keyword: keyword }]);
+
       return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ 系統提示：本次查詢樣本不足\n在公開資料庫中未匹配到足夠的標準交易。\n\n💡【顧問提醒】若強行計算平均單價，極易產生精準假象與核貸落差。\n\n若您需判斷可售價格、銀行估價或土地開發價值，建議直接提供「謄本」或「權狀」，由宏國地政｜易丞地政為您進行專案精估。` });
     }
 
