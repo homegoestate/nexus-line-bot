@@ -22,9 +22,12 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-// 💡 胖數字轉換器
+// 💡 胖數字轉換器 (楊總專屬增強版：處理空白、台臺轉換)
 function toFullWidth(str) {
-  return str.replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
+  if (!str) return '';
+  return str.replace(/\s+/g, '') // 徹底拔除所有空白
+            .replace(/台/g, '臺') // 統一轉為官方用的「臺」
+            .replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
 }
 
 async function handleEvent(event) {
@@ -159,7 +162,7 @@ async function handleEvent(event) {
   // 🌟 功能 B：雲端字典轉換 + 胖胖數字引擎
   // ==========================================
   if (!rawText.startsWith('查價') && !rawText.startsWith('估價')) return Promise.resolve(null);
-  let keyword = rawText.replace(/^(查價|估價)/, '').trim();
+  let keyword = rawText.replace(/^(查價|估價)/, '').replace(/\s+/g, '').trim();
   if (keyword.length < 2) return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入完整的社區或路段名稱！' });
 
   let searchKeyword = keyword;
