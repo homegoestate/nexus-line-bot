@@ -1,10 +1,9 @@
 name: MOI Real Estate Data Auto Updater
 
-# 設定每個月的 2日, 12日, 22日 台灣時間凌晨 4 點自動執行 (內政部於1,11,21發布)
 on:
   schedule:
     - cron: '0 20 1,11,21 * *' 
-  workflow_dispatch: # 允許您在 GitHub 隨時手動點擊按鈕執行測試
+  workflow_dispatch: 
 
 jobs:
   update-data:
@@ -19,7 +18,7 @@ jobs:
           node-version: '20'
           
       - name: Install Dependencies
-        run: npm install axios adm-zip csv-parser iconv-lite @supabase/supabase-js ws
+        run: npm install axios adm-zip csv-parser iconv-lite ws @supabase/supabase-js
         
       - name: Run MOI Updater Script
         env:
