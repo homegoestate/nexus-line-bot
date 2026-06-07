@@ -21,14 +21,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
     realtime: { transport: WebSocket }
 });
 
+// ✅ 只保留目前內政部實價登錄 OpenData 本期下載網址
+// 避免舊網址反覆 timeout，浪費 GitHub Actions 時間
 const MOI_URLS = [
-    'https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip',
-    'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_rupload.zip'
+    'https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip'
 ];
 
 const axiosClient = axios.create({
     responseType: 'arraybuffer',
-    timeout: 180000,
+    timeout: 45000,
     maxRedirects: 5,
     httpsAgent: new https.Agent({
         keepAlive: false,
@@ -102,7 +103,7 @@ function debugCSVRows(label, rows) {
     }
 }
 
-async function downloadMOIDataWithRetry(urls, maxRetries = 5) {
+async function downloadMOIDataWithRetry(urls, maxRetries = 3) {
     let lastError;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -141,7 +142,7 @@ async function downloadMOIDataWithRetry(urls, maxRetries = 5) {
         }
 
         if (attempt < maxRetries) {
-            const delaySeconds = attempt * 20;
+            const delaySeconds = attempt * 15;
             console.log(`⏳ 等待 ${delaySeconds} 秒後重試...`);
             await sleep(delaySeconds * 1000);
         }
@@ -159,7 +160,7 @@ function findZipEntry(entries, targetFileName) {
     });
 }
 
-async function insertInChunks(tableName, data, mode = 'insert', options = {}) {
+async function insertInChunks(tableName, data) {
     const chunkSize = 1000;
 
     for (let i = 0; i < data.length; i += chunkSize) {
@@ -169,13 +170,7 @@ async function insertInChunks(tableName, data, mode = 'insert', options = {}) {
 
         console.log(`📦 匯入 ${tableName} 第 ${batchNo}/${totalBatch} 批，共 ${chunk.length} 筆...`);
 
-        let result;
-
-        if (mode === 'upsert') {
-            result = await supabase.from(tableName).upsert(chunk, options);
-        } else {
-            result = await supabase.from(tableName).insert(chunk);
-        }
+        const result = await supabase.from(tableName).insert(chunk);
 
         if (result.error) {
             throw new Error(`${tableName} 匯入失敗：${result.error.message}`);
@@ -255,7 +250,7 @@ async function runUpdater() {
     console.log('🚀 開始執行內政部實價登錄自動更新排程...');
 
     try {
-        const zipBuffer = await downloadMOIDataWithRetry(MOI_URLS, 5);
+        const zipBuffer = await downloadMOIDataWithRetry(MOI_URLS, 3);
 
         const zip = new AdmZip(zipBuffer);
         const entries = zip.getEntries();
@@ -346,12 +341,7 @@ async function runUpdater() {
             }
 
             if (cleanRentData.length > 0) {
-                await insertInChunks(
-                    'rental_transactions',
-                    cleanRentData,
-                    'insert'
-                );
-
+                await insertInChunks('rental_transactions', cleanRentData);
                 console.log(`✅ 成功匯入 ${cleanRentData.length} 筆租屋資料！`);
             } else {
                 console.warn('⚠️ 台南本期租賃資料為 0 筆，未匯入 rental_transactions。');
@@ -417,12 +407,7 @@ async function runUpdater() {
             }
 
             if (cleanBuyData.length > 0) {
-                await insertInChunks(
-                    'real_estate_transactions',
-                    cleanBuyData,
-                    'insert'
-                );
-
+                await insertInChunks('real_estate_transactions', cleanBuyData);
                 console.log(`✅ 成功匯入 ${cleanBuyData.length} 筆買賣資料！`);
             } else {
                 console.warn('⚠️ 台南本期買賣資料為 0 筆，未匯入 real_estate_transactions。');
