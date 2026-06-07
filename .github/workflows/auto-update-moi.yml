@@ -2,24 +2,31 @@ name: MOI Real Estate Data Auto Updater
 
 on:
   schedule:
-    - cron: '0 20 1,11,21 * *' 
-  workflow_dispatch: 
+    - cron: '0 20 1,11,21 * *'
+  workflow_dispatch:
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
+
       - name: Install Dependencies
         run: npm install axios adm-zip csv-parser iconv-lite ws @supabase/supabase-js
-        
+
+      - name: Network Preflight Test
+        run: |
+          echo "Testing MOI connection..."
+          curl -k -Iv --connect-timeout 20 --max-time 60 https://210.65.131.73:443 || true
+          echo "Network test finished."
+
       - name: Run MOI Updater Script
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
