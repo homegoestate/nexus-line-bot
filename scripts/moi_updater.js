@@ -22,7 +22,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 // ✅ 只保留目前內政部實價登錄 OpenData 本期下載網址
-// 避免舊網址反覆 timeout，浪費 GitHub Actions 時間
 const MOI_URLS = [
     'https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip'
 ];
@@ -160,7 +159,7 @@ function findZipEntry(entries, targetFileName) {
     });
 }
 
-async function insertInChunks(tableName, data) {
+async function insertInChunks(tableName, data, options = {}) {
     const chunkSize = 1000;
 
     for (let i = 0; i < data.length; i += chunkSize) {
@@ -170,7 +169,20 @@ async function insertInChunks(tableName, data) {
 
         console.log(`📦 匯入 ${tableName} 第 ${batchNo}/${totalBatch} 批，共 ${chunk.length} 筆...`);
 
-        const result = await supabase.from(tableName).insert(chunk);
+        let result;
+
+        if (options.mode === 'upsert_ignore') {
+            result = await supabase
+                .from(tableName)
+                .upsert(chunk, {
+                    onConflict: options.onConflict,
+                    ignoreDuplicates: true
+                });
+        } else {
+            result = await supabase
+                .from(tableName)
+                .insert(chunk);
+        }
 
         if (result.error) {
             throw new Error(`${tableName} 匯入失敗：${result.error.message}`);
@@ -233,7 +245,6 @@ function parseMOICSV(buffer) {
                 }
             }))
             .on('data', (data) => {
-                // 內政部 CSV 第二列通常是英文欄位說明，這裡略過第一筆資料列
                 if (isFirstRow) {
                     isFirstRow = false;
                     return;
@@ -262,10 +273,6 @@ async function runUpdater() {
             console.log(`- ${entry.entryName}`);
         });
 
-        // D = 台南市
-        // A = 買賣
-        // B = 預售屋
-        // C = 租賃
         const rentFile = findZipEntry(entries, 'D_lvr_land_C.csv');
         const buyFile = findZipEntry(entries, 'D_lvr_land_A.csv');
 
@@ -341,8 +348,12 @@ async function runUpdater() {
             }
 
             if (cleanRentData.length > 0) {
-                await insertInChunks('rental_transactions', cleanRentData);
-                console.log(`✅ 成功匯入 ${cleanRentData.length} 筆租屋資料！`);
+                await insertInChunks('rental_transactions', cleanRentData, {
+                    mode: 'upsert_ignore',
+                    onConflict: 'address,total_rent,floor_info'
+                });
+
+                console.log(`✅ 成功匯入或略過重複租屋資料，共處理 ${cleanRentData.length} 筆！`);
             } else {
                 console.warn('⚠️ 台南本期租賃資料為 0 筆，未匯入 rental_transactions。');
             }
