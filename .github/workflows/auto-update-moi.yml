@@ -27,26 +27,34 @@ jobs:
 
           echo "Downloading MOI real estate ZIP file..."
 
-          curl -L \
-            --fail \
-            --retry 5 \
-            --retry-delay 20 \
-            --retry-all-errors \
-            --connect-timeout 60 \
-            --max-time 300 \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" \
-            -H "Referer: https://plvr.land.moi.gov.tw/DownloadOpenData" \
-            -o moi-data/lvr_landcsv.zip \
-            "https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip"
+          DOWNLOAD_OK="false"
 
-          echo "Downloaded file:"
-          ls -lh moi-data/lvr_landcsv.zip
+          for i in 1 2 3 4 5
+          do
+            echo "Download attempt $i/5..."
 
-          echo "Checking ZIP header..."
-          python3 - <<'PY'
+            curl -L \
+              --fail \
+              --connect-timeout 90 \
+              --max-time 420 \
+              -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" \
+              -H "Referer: https://plvr.land.moi.gov.tw/DownloadOpenData" \
+              -o moi-data/lvr_landcsv.zip \
+              "https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip"
+
+            CURL_EXIT_CODE=$?
+
+            if [ "$CURL_EXIT_CODE" -eq 0 ]; then
+              echo "Download command completed."
+              
+              python3 - <<'PY'
           from pathlib import Path
 
           file_path = Path("moi-data/lvr_landcsv.zip")
+
+          if not file_path.exists():
+              raise SystemExit("ZIP file does not exist.")
+
           data = file_path.read_bytes()
 
           if len(data) < 4:
@@ -59,9 +67,40 @@ jobs:
           print("ZIP header check passed.")
           PY
 
+              ZIP_CHECK_EXIT_CODE=$?
+
+              if [ "$ZIP_CHECK_EXIT_CODE" -eq 0 ]; then
+                DOWNLOAD_OK="true"
+                break
+              fi
+            fi
+
+            echo "Download failed on attempt $i."
+            echo "Waiting 30 seconds before retry..."
+            sleep 30
+          done
+
+          echo "MOI_DOWNLOAD_OK=$DOWNLOAD_OK" >> "$GITHUB_ENV"
+
+          if [ "$DOWNLOAD_OK" = "true" ]; then
+            echo "Downloaded file:"
+            ls -lh moi-data/lvr_landcsv.zip
+          else
+            echo "MOI download failed after all retries."
+            echo "This workflow will skip database update and keep existing data."
+          fi
+
       - name: Run MOI Updater Script
+        if: env.MOI_DOWNLOAD_OK == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           MOI_ZIP_PATH: moi-data/lvr_landcsv.zip
         run: node scripts/moi_updater.js
+
+      - name: Skip Update When MOI Is Unreachable
+        if: env.MOI_DOWNLOAD_OK != 'true'
+        run: |
+          echo "內政部下載站暫時連不上，本次排程略過更新。"
+          echo "既有 Supabase 資料不會被清空、不會被覆蓋。"
+          echo "請稍後手動 Re-run workflow，或等待下次排程。"
