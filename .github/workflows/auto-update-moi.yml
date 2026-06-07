@@ -19,7 +19,7 @@ jobs:
           node-version: '20'
           
       - name: Install Dependencies
-        run: npm install axios adm-zip csv-parser iconv-lite @supabase/supabase-js
+        run: npm install axios adm-zip csv-parser iconv-lite @supabase/supabase-js ws
         
       - name: Run MOI Updater Script
         env:
