@@ -1,9 +1,10 @@
 const axios = require('axios');
 const https = require('https');
+const path = require('path');
 const AdmZip = require('adm-zip');
 const csv = require('csv-parser');
 const iconv = require('iconv-lite');
-const WebSocket = require('ws'); // 🌟 強制掛載通訊天線
+const WebSocket = require('ws');
 const { createClient } = require('@supabase/supabase-js');
 const { Readable } = require('stream');
 
@@ -15,27 +16,34 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
     process.exit(1);
 }
 
-// 🌟 告訴 Supabase 強制使用 ws 套件，徹底解決報錯
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: { persistSession: false },
     realtime: { transport: WebSocket }
 });
 
-const MOI_URL = 'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_rupload.zip';
+// ✅ 目前政府資料開放平台指向的本期 CSV ZIP 下載路徑
+const MOI_URLS = [
+    'https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip',
+
+    // 備援：保留你原本的舊網址，但會先跑上面新版
+    'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_rupload.zip'
+];
 
 const axiosClient = axios.create({
     responseType: 'arraybuffer',
     timeout: 180000,
+    maxRedirects: 5,
     httpsAgent: new https.Agent({
         keepAlive: false,
         rejectUnauthorized: true
     }),
+    validateStatus: status => status >= 200 && status < 400,
     headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/zip,application/octet-stream,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'application/zip,application/octet-stream,*/*',
         'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
         'Connection': 'close',
-        'Referer': 'https://plvr.land.moi.gov.tw/'
+        'Referer': 'https://plvr.land.moi.gov.tw/DownloadOpenData'
     }
 });
 
@@ -55,37 +63,75 @@ function getErrorMessage(error) {
     return error.message || String(error);
 }
 
-async function downloadMOIDataWithRetry(url, maxRetries = 5) {
+function isZipBuffer(buffer) {
+    if (!buffer || buffer.length < 4) return false;
+
+    // ZIP 檔通常會以 PK 開頭
+    return buffer[0] === 0x50 && buffer[1] === 0x4B;
+}
+
+function previewBuffer(buffer) {
+    if (!buffer || buffer.length === 0) return '[empty response]';
+
+    const textUtf8 = buffer.toString('utf8', 0, Math.min(buffer.length, 800));
+    return textUtf8.replace(/\s+/g, ' ').slice(0, 500);
+}
+
+async function downloadMOIDataWithRetry(urls, maxRetries = 5) {
     let lastError;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            console.log(`📥 正在下載內政部資料，第 ${attempt}/${maxRetries} 次嘗試...`);
+        for (const url of urls) {
+            try {
+                console.log(`📥 正在下載內政部資料，第 ${attempt}/${maxRetries} 次嘗試...`);
+                console.log(`🌐 下載網址：${url}`);
 
-            const response = await axiosClient.get(url);
+                const response = await axiosClient.get(url);
+                const buffer = Buffer.from(response.data || []);
 
-            if (!response.data || response.data.length === 0) {
-                throw new Error('下載成功但資料為空');
+                const contentType = response.headers['content-type'] || '';
+                const contentLength = buffer.length;
+
+                console.log(`📡 HTTP 狀態：${response.status}`);
+                console.log(`📄 Content-Type：${contentType}`);
+                console.log(`📦 檔案大小：約 ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+
+                if (!buffer || buffer.length === 0) {
+                    throw new Error('下載成功但資料為空');
+                }
+
+                if (!isZipBuffer(buffer)) {
+                    console.warn('⚠️ 下載內容不是 ZIP，前段內容如下：');
+                    console.warn(previewBuffer(buffer));
+                    throw new Error('下載內容不是 ZIP 檔，可能抓到 HTML、錯誤頁或轉址頁');
+                }
+
+                console.log('✅ ZIP 格式檢查通過');
+                return buffer;
+
+            } catch (error) {
+                lastError = error;
+                console.warn(`⚠️ 本網址下載失敗：${getErrorMessage(error)}`);
             }
+        }
 
-            console.log(`✅ 下載成功，檔案大小：約 ${(response.data.length / 1024 / 1024).toFixed(2)} MB`);
-            return response;
-
-        } catch (error) {
-            lastError = error;
-            const message = getErrorMessage(error);
-
-            console.warn(`⚠️ 第 ${attempt}/${maxRetries} 次下載失敗：${message}`);
-
-            if (attempt < maxRetries) {
-                const delaySeconds = attempt * 20;
-                console.log(`⏳ 等待 ${delaySeconds} 秒後重試...`);
-                await sleep(delaySeconds * 1000);
-            }
+        if (attempt < maxRetries) {
+            const delaySeconds = attempt * 20;
+            console.log(`⏳ 等待 ${delaySeconds} 秒後重試...`);
+            await sleep(delaySeconds * 1000);
         }
     }
 
     throw new Error(`內政部資料下載失敗，已重試 ${maxRetries} 次。最後錯誤：${getErrorMessage(lastError)}`);
+}
+
+function findZipEntry(entries, targetFileName) {
+    const target = targetFileName.toLowerCase();
+
+    return entries.find(entry => {
+        const baseName = path.basename(entry.entryName).toLowerCase();
+        return baseName === target;
+    });
 }
 
 async function insertInChunks(tableName, data, mode = 'insert', options = {}) {
@@ -116,17 +162,26 @@ async function runUpdater() {
     console.log('🚀 開始執行內政部實價登錄自動更新排程...');
 
     try {
-        console.log('📥 正在下載資料，已啟用重試機制與防封鎖 headers...');
+        console.log('📥 正在下載資料，已啟用新版下載網址、ZIP 檢查與重試機制...');
 
-        const response = await downloadMOIDataWithRetry(MOI_URL, 5);
+        const zipBuffer = await downloadMOIDataWithRetry(MOI_URLS, 5);
 
-        const zip = new AdmZip(response.data);
+        const zip = new AdmZip(zipBuffer);
         const entries = zip.getEntries();
 
         console.log(`📦 ZIP 內共有 ${entries.length} 個檔案`);
 
-        const rentFile = entries.find(e => e.entryName === 'D_lvr_land_C.csv');
-        const buyFile = entries.find(e => e.entryName === 'D_lvr_land_A.csv');
+        console.log('🔍 ZIP 前 20 個檔案名稱：');
+        entries.slice(0, 20).forEach(entry => {
+            console.log(`- ${entry.entryName}`);
+        });
+
+        // D = 台南市
+        // A = 買賣
+        // B = 預售屋
+        // C = 租賃
+        const rentFile = findZipEntry(entries, 'D_lvr_land_C.csv');
+        const buyFile = findZipEntry(entries, 'D_lvr_land_A.csv');
 
         if (!rentFile) {
             console.warn('⚠️ 找不到台南租賃資料 D_lvr_land_C.csv');
@@ -243,6 +298,7 @@ function parseMOICSV(buffer) {
             .pipe(iconv.decodeStream('big5'))
             .pipe(csv())
             .on('data', (data) => {
+                // 內政部 CSV 第二列常是英文欄位或說明列，這裡沿用你原本邏輯略過第一筆資料列
                 if (isFirstRow) {
                     isFirstRow = false;
                     return;
