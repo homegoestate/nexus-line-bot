@@ -371,16 +371,64 @@ async function runUpdater() {
     }
 }
 
+function detectCSVEncoding(buffer) {
+    const utf8Text = buffer.toString('utf8');
+    const big5Text = iconv.decode(buffer, 'big5');
+
+    const keywords = [
+        '土地位置建物門牌',
+        '土地區段位置建物門牌',
+        '鄉鎮市區',
+        '交易標的',
+        '總額元',
+        '單價元平方公尺'
+    ];
+
+    const hasKeyword = (text) => keywords.some(keyword => text.includes(keyword));
+    const badCharCount = (text) => (text.match(/\uFFFD/g) || []).length;
+
+    if (hasKeyword(utf8Text) && badCharCount(utf8Text) < 20) {
+        return 'utf8';
+    }
+
+    if (hasKeyword(big5Text)) {
+        return 'big5';
+    }
+
+    // 如果判斷不到，就優先用 UTF-8，因為新版開放資料常見 UTF-8
+    return badCharCount(utf8Text) < 20 ? 'utf8' : 'big5';
+}
+
 function parseMOICSV(buffer) {
     return new Promise((resolve, reject) => {
         const results = [];
+
+        const encoding = detectCSVEncoding(buffer);
+        console.log(`🧾 CSV 編碼判斷：${encoding}`);
+
+        let decodedText;
+
+        if (encoding === 'big5') {
+            decodedText = iconv.decode(buffer, 'big5');
+        } else {
+            decodedText = buffer.toString('utf8');
+        }
+
+        // 移除 UTF-8 BOM，避免第一個欄位名稱變成奇怪字元
+        decodedText = decodedText.replace(/^\uFEFF/, '');
+
         let isFirstRow = true;
 
-        Readable.from(buffer)
-            .pipe(iconv.decodeStream('big5'))
-            .pipe(csv())
+        Readable.from([decodedText])
+            .pipe(csv({
+                mapHeaders: ({ header }) => {
+                    return String(header || '')
+                        .replace(/^\uFEFF/, '')
+                        .trim();
+                }
+            }))
             .on('data', (data) => {
-                // 內政部 CSV 第二列常是英文欄位或說明列，這裡略過第一筆資料列
+                // 內政部 CSV 第二列通常是英文欄位說明，這裡略過第一筆資料列
                 if (isFirstRow) {
                     isFirstRow = false;
                     return;
@@ -392,5 +440,3 @@ function parseMOICSV(buffer) {
             .on('error', reject);
     });
 }
-
-runUpdater();
