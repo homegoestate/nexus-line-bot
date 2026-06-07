@@ -27,7 +27,6 @@ app.post('/api', line.middleware(config), async (req, res) => {
   }
 });
 
-// 兼容 Vercel 有時候吃到根路徑的情況
 app.post('/', line.middleware(config), async (req, res) => {
   try {
     const events = req.body.events || [];
@@ -63,29 +62,95 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseRocYear(transactionDate) {
+  const text = String(transactionDate || '').trim();
+
+  if (!text || text.length < 3) return null;
+
+  const rocYear = Number(text.substring(0, 3));
+
+  if (!Number.isFinite(rocYear) || rocYear <= 0) return null;
+
+  return rocYear;
+}
+
+function isLandType(item) {
+  const buildingType = String(item.building_type || '');
+  const transactionType = String(item.transaction_type || '');
+  const notes = String(item.notes || '');
+
+  return buildingType.includes('土地') ||
+    transactionType.includes('土地') ||
+    notes.includes('僅土地') ||
+    notes.includes('土地交易');
+}
+
 function getAgeGroup(item) {
-  if (item.transaction_type === '預售屋') return '🚀 預售屋 (未來指標)';
+  if (item.transaction_type === '預售屋') {
+    return '🚀 預售屋（未來指標）';
+  }
+
+  const rocYear = parseRocYear(item.transaction_date);
+
+  if (isLandType(item)) {
+    return rocYear ? `${rocYear}年土地交易` : '土地交易';
+  }
 
   const age = item.building_age;
 
-  if (age === null || age === undefined || age === '') return '年份不詳';
+  if (age !== null && age !== undefined && age !== '') {
+    const numAge = Number(age);
 
-  const numAge = Number(age);
+    if (Number.isFinite(numAge)) {
+      if (numAge <= 5) return '0-5年（新成屋）';
+      if (numAge <= 10) return '5-10年（新古屋）';
+      if (numAge <= 20) return '10-20年（中古屋）';
+      return '20年以上（老屋）';
+    }
+  }
 
-  if (!Number.isFinite(numAge)) return '年份不詳';
-  if (numAge <= 5) return '0-5年 (新成屋)';
-  if (numAge <= 10) return '5-10年 (新古屋)';
-  if (numAge <= 20) return '10-20年 (中古屋)';
+  return rocYear ? `${rocYear}年交易` : '交易年度未載';
+}
 
-  return '20年以上 (老屋)';
+function getDisplayBuildingType(item) {
+  const buildingType = String(item.building_type || '').trim();
+  const transactionType = String(item.transaction_type || '').trim();
+
+  if (buildingType) return buildingType;
+  if (transactionType) return transactionType;
+
+  return '類型不詳';
 }
 
 function isBadSample(item) {
   const notes = String(item.notes || '');
+
   return notes.includes('親友') ||
     notes.includes('特殊') ||
     notes.includes('急買急賣') ||
     notes.includes('關係人');
+}
+
+function buildKeywordVariants(keyword) {
+  const clean = normalizeKeyword(keyword);
+  const variants = new Set();
+
+  if (clean) variants.add(clean);
+
+  const withoutCity = clean
+    .replace(/^台南市/, '')
+    .replace(/^臺南市/, '')
+    .trim();
+
+  if (withoutCity) variants.add(withoutCity);
+
+  if (clean && !clean.startsWith('台南市')) variants.add(`台南市${clean}`);
+  if (clean && !clean.startsWith('臺南市')) variants.add(`臺南市${clean}`);
+
+  variants.add(toFullWidth(clean));
+  variants.add(toFullWidth(withoutCity));
+
+  return Array.from(variants).filter(Boolean);
 }
 
 async function resolveDictionaryKeyword(keyword) {
@@ -145,6 +210,84 @@ async function handleEvent(event) {
   }
 }
 
+async function searchRealEstateRows(keyword) {
+  const variants = buildKeywordVariants(keyword);
+  const allRows = [];
+
+  for (const variant of variants) {
+    const safeKeyword = safeKeywordForOr(variant);
+    if (!safeKeyword) continue;
+
+    const { data, error } = await supabase
+      .from('real_estate_transactions')
+      .select('city,transaction_type,address,building_type,building_age,transaction_date,unit_price_sqm,unit_price_ping,notes')
+      .or(`address.ilike.%${safeKeyword}%,notes.ilike.%${safeKeyword}%`)
+      .limit(1000);
+
+    if (error) {
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      allRows.push(...data);
+    }
+  }
+
+  const seen = new Set();
+
+  return allRows.filter(row => {
+    const key = `${row.address || ''}|${row.transaction_date || ''}|${row.unit_price_sqm || ''}|${row.building_type || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function searchRentalRows(keyword) {
+  const variants = buildKeywordVariants(keyword);
+  const allRows = [];
+
+  for (const variant of variants) {
+    const safeKeyword = safeKeywordForOr(variant);
+    if (!safeKeyword) continue;
+
+    const { data, error } = await supabase
+      .from('rental_transactions')
+      .select('city,transaction_type,address,building_type,total_rent,unit_rent_ping,total_area_sqm,floor_info,notes,transaction_date')
+      .or(`address.ilike.%${safeKeyword}%,notes.ilike.%${safeKeyword}%,building_type.ilike.%${safeKeyword}%,floor_info.ilike.%${safeKeyword}%`)
+      .limit(1000);
+
+    if (error) {
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      allRows.push(...data);
+    }
+  }
+
+  const seen = new Set();
+
+  return allRows.filter(row => {
+    const key = `${row.address || ''}|${row.transaction_date || ''}|${row.total_rent || ''}|${row.floor_info || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function getCitywideRentalRows() {
+  const { data, error } = await supabase
+    .from('rental_transactions')
+    .select('city,transaction_type,address,building_type,total_rent,unit_rent_ping,total_area_sqm,floor_info,notes,transaction_date')
+    .eq('city', '台南市')
+    .limit(2000);
+
+  if (error) throw error;
+
+  return data || [];
+}
+
 async function handleEstimate(event, rawText) {
   const keyword = normalizeKeyword(rawText.replace(/^估價/, ''));
 
@@ -156,38 +299,22 @@ async function handleEstimate(event, rawText) {
   }
 
   const searchKeyword = await resolveDictionaryKeyword(keyword);
-  const safeKeyword = safeKeywordForOr(searchKeyword);
-  const fullWidthKeyword = toFullWidth(safeKeyword);
 
-  const { data, error } = await supabase
-    .from('real_estate_transactions')
-    .select('city,transaction_type,address,building_type,building_age,unit_price_sqm,unit_price_ping,notes')
-    .or(`address.ilike.%${safeKeyword}%,notes.ilike.%${safeKeyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`)
-    .limit(1000);
-
-  if (error) {
-    console.error('estimate query error:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '估價查詢發生錯誤，請稍後再試。'
-    });
-  }
-
-  const rows = (data || [])
+  const rows = (await searchRealEstateRows(searchKeyword))
     .filter(item => !isBadSample(item))
     .filter(item => toNumber(item.unit_price_sqm) > 0);
 
   if (rows.length === 0) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `查無「${keyword}」附近足夠買賣行情資料。\n\n你可以改用：\n估價 府前路\n估價 中華東路\n估價 東門路`
+      text: `查無「${keyword}」附近足夠買賣行情資料。\n\n你可以改用：\n估價 北門路\n估價 府前路\n估價 中華東路`
     });
   }
 
   const groupMap = new Map();
 
   rows.forEach(item => {
-    const buildingType = item.building_type || item.transaction_type || '類型不詳';
+    const buildingType = getDisplayBuildingType(item);
     const ageGroup = getAgeGroup(item);
     const key = `${buildingType}__${ageGroup}`;
 
@@ -244,7 +371,8 @@ function createEstimateBubble(keyword, group) {
   const avgText = avgWanPerPing.toFixed(1);
 
   const isPresale = group.ageGroup.includes('預售屋');
-  const color = isPresale ? '#e74c3c' : '#536DFE';
+  const isLand = group.buildingType.includes('土地') || group.ageGroup.includes('土地');
+  const color = isPresale ? '#e74c3c' : isLand ? '#8e44ad' : '#536DFE';
 
   return {
     type: 'bubble',
@@ -326,7 +454,7 @@ function createEstimateBubble(keyword, group) {
           color,
           action: {
             type: 'message',
-            label: '詳細核貸試算',
+            label: isLand ? '土地資金試算' : '詳細核貸試算',
             text: `💰試算 ${keyword}_${group.buildingType}_${group.ageGroup}`
           }
         }
@@ -347,30 +475,22 @@ async function handleLoanDetail(event, rawText) {
     if (!keyword || !targetType || !targetAgeGroup) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '試算格式錯誤，請重新從估價卡片點選「詳細核貸試算」。'
+        text: '試算格式錯誤，請重新從估價卡片點選試算。'
       });
     }
 
     const searchKeyword = await resolveDictionaryKeyword(keyword);
-    const safeKeyword = safeKeywordForOr(searchKeyword);
-    const fullWidthKeyword = toFullWidth(safeKeyword);
 
-    const { data, error } = await supabase
-      .from('real_estate_transactions')
-      .select('city,transaction_type,address,building_type,building_age,unit_price_sqm,unit_price_ping,notes')
-      .or(`address.ilike.%${safeKeyword}%,notes.ilike.%${safeKeyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`)
-      .limit(1000);
-
-    if (error) throw error;
+    const rows = (await searchRealEstateRows(searchKeyword))
+      .filter(item => !isBadSample(item))
+      .filter(item => toNumber(item.unit_price_sqm) > 0);
 
     let count = 0;
     let totalUnitPricePing = 0;
 
-    (data || []).forEach(item => {
-      if (isBadSample(item)) return;
-
+    rows.forEach(item => {
       const ageGroup = getAgeGroup(item);
-      const buildingType = item.building_type || item.transaction_type || '類型不詳';
+      const buildingType = getDisplayBuildingType(item);
 
       const unitPricePing = item.unit_price_ping
         ? toNumber(item.unit_price_ping)
@@ -398,11 +518,12 @@ async function handleLoanDetail(event, rawText) {
     const monthlyIncome = (loan / 158).toFixed(1);
 
     const isPresale = targetAgeGroup.includes('預售屋');
-    const accentColor = isPresale ? '#e74c3c' : '#536DFE';
+    const isLand = targetType.includes('土地') || targetAgeGroup.includes('土地');
+    const accentColor = isPresale ? '#e74c3c' : isLand ? '#8e44ad' : '#536DFE';
 
     const detailFlex = {
       type: 'flex',
-      altText: `${keyword} 詳細核貸試算`,
+      altText: `${keyword} 詳細試算`,
       contents: {
         type: 'bubble',
         header: {
@@ -419,7 +540,7 @@ async function handleLoanDetail(event, rawText) {
             },
             {
               type: 'text',
-              text: '不動產成交前評估系統',
+              text: isLand ? '土地成交前資金評估' : '不動產成交前評估系統',
               color: '#f1c40f',
               size: 'xs',
               margin: 'sm'
@@ -432,7 +553,7 @@ async function handleLoanDetail(event, rawText) {
           contents: [
             {
               type: 'text',
-              text: `📍 查詢標的 (${targetType})`,
+              text: `📍 查詢標的（${targetType}）`,
               size: 'xs',
               color: '#888888'
             },
@@ -505,7 +626,7 @@ async function handleLoanDetail(event, rawText) {
             },
             {
               type: 'text',
-              text: '🏦 銀行核貸試算（以標準35坪計）',
+              text: isLand ? '🏦 土地資金試算（以標準35坪計）' : '🏦 銀行核貸試算（以標準35坪計）',
               size: 'sm',
               weight: 'bold',
               margin: 'lg'
@@ -537,7 +658,7 @@ async function handleLoanDetail(event, rawText) {
               contents: [
                 {
                   type: 'text',
-                  text: '銀行可貸（估8成）',
+                  text: isLand ? '可貸估算（需個案）' : '銀行可貸（估8成）',
                   size: 'sm',
                   color: '#555555'
                 },
@@ -582,17 +703,19 @@ async function handleLoanDetail(event, rawText) {
               contents: [
                 {
                   type: 'text',
-                  text: '💡 建議月收入達',
+                  text: isLand ? '💡 土地貸款需看分區、臨路、使用現況' : '💡 建議月收入達',
                   size: 'sm',
-                  color: '#555555'
+                  color: '#555555',
+                  wrap: true
                 },
                 {
                   type: 'text',
-                  text: `${monthlyIncome} 萬以上`,
+                  text: isLand ? '需專案評估' : `${monthlyIncome} 萬以上`,
                   size: 'sm',
                   color: '#e74c3c',
                   weight: 'bold',
-                  align: 'end'
+                  align: 'end',
+                  wrap: true
                 }
               ]
             }
@@ -608,8 +731,8 @@ async function handleLoanDetail(event, rawText) {
               color: accentColor,
               action: {
                 type: 'message',
-                label: '條件符合？洽詢專屬方案',
-                text: '我想洽詢房貸專案'
+                label: isLand ? '洽詢土地資金與開發評估' : '條件符合？洽詢專屬方案',
+                text: isLand ? '我想諮詢土地資金與開發評估' : '我想洽詢房貸專案'
               }
             }
           ]
@@ -628,45 +751,8 @@ async function handleLoanDetail(event, rawText) {
   }
 }
 
-async function handleRent(event, rawText) {
-  const keyword = normalizeKeyword(rawText.replace(/^(租屋|租金|查租)/, ''));
-
-  if (!keyword) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '請輸入：租屋 路名或行政區\n例如：租屋 北門路\n也可以輸入：租金 安南區'
-    });
-  }
-
-  const searchKeyword = await resolveDictionaryKeyword(keyword);
-  const safeKeyword = safeKeywordForOr(searchKeyword);
-  const fullWidthKeyword = toFullWidth(safeKeyword);
-
-  const { data, error } = await supabase
-    .from('rental_transactions')
-    .select('city,transaction_type,address,building_type,total_rent,unit_rent_ping,total_area_sqm,floor_info,notes')
-    .or(`address.ilike.%${safeKeyword}%,notes.ilike.%${safeKeyword}%,address.ilike.%${fullWidthKeyword}%,notes.ilike.%${fullWidthKeyword}%`)
-    .limit(1000);
-
-  if (error) {
-    console.error('rent query error:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '租屋行情查詢發生錯誤，請稍後再試。'
-    });
-  }
-
-  const rows = (data || [])
-    .filter(item => !isBadSample(item))
-    .filter(item => toNumber(item.total_rent) > 0)
-    .filter(item => toNumber(item.total_rent) < 500000);
-
-  if (rows.length === 0) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `查無「${keyword}」附近足夠租屋行情資料。\n\n你可以改用：\n租屋 東區\n租金 安南區\n租屋 北門路`
-    });
-  }
+function createRentFlex(keyword, rows, options = {}) {
+  const isFallback = options.isFallback || false;
 
   let totalRent = 0;
   let minRent = Infinity;
@@ -679,23 +765,22 @@ async function handleRent(event, rawText) {
 
   rows.forEach(item => {
     const rent = toNumber(item.total_rent);
+
+    if (rent <= 0) return;
+
     totalRent += rent;
     minRent = Math.min(minRent, rent);
     maxRent = Math.max(maxRent, rent);
 
     const rentPing = toNumber(item.unit_rent_ping);
+
     if (rentPing > 0 && rentPing < 10000) {
       totalRentPing += rentPing;
       rentPingCount += 1;
     }
 
     const type = item.building_type || '類型不詳';
-
-    if (!typeMap.has(type)) {
-      typeMap.set(type, 0);
-    }
-
-    typeMap.set(type, typeMap.get(type) + 1);
+    typeMap.set(type, (typeMap.get(type) || 0) + 1);
   });
 
   const avgRent = Math.round(totalRent / rows.length);
@@ -707,7 +792,12 @@ async function handleRent(event, rawText) {
     .map(([type, count]) => `${type} ${count}筆`)
     .join('、');
 
-  const rentFlex = {
+  const title = isFallback ? '台南市整體租金參考' : keyword;
+  const subtitle = isFallback
+    ? `查無「${keyword}」精準樣本，先提供本期台南市整體租賃行情`
+    : '內政部實價登錄租賃資料';
+
+  return {
     type: 'flex',
     altText: `${keyword} 租屋行情`,
     contents: {
@@ -739,15 +829,23 @@ async function handleRent(event, rawText) {
         contents: [
           {
             type: 'text',
-            text: `📍 查詢區域 / 路段`,
+            text: '📍 查詢區域 / 路段',
             size: 'xs',
             color: '#888888'
           },
           {
             type: 'text',
-            text: keyword,
+            text: title,
             size: 'xxl',
             weight: 'bold',
+            margin: 'sm',
+            wrap: true
+          },
+          {
+            type: 'text',
+            text: subtitle,
+            size: 'xs',
+            color: isFallback ? '#e67e22' : '#536DFE',
             margin: 'sm',
             wrap: true
           },
@@ -856,7 +954,9 @@ async function handleRent(event, rawText) {
             contents: [
               {
                 type: 'text',
-                text: '提醒：租金行情會受屋況、家具家電、管理費、車位、樓層與裝潢影響，建議作為初步參考。',
+                text: isFallback
+                  ? '提醒：這是台南市整體租賃參考，不代表該路段精準行情。若要精準判斷，建議改用路名或社區名稱。'
+                  : '提醒：租金行情會受屋況、家具家電、管理費、車位、樓層與裝潢影響，建議作為初步參考。',
                 size: 'xs',
                 color: '#555555',
                 wrap: true
@@ -883,8 +983,44 @@ async function handleRent(event, rawText) {
       }
     }
   };
+}
 
-  return client.replyMessage(event.replyToken, rentFlex);
+async function handleRent(event, rawText) {
+  const keyword = normalizeKeyword(rawText.replace(/^(租屋|租金|查租)/, ''));
+
+  if (!keyword) {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '請輸入：租屋 路名或行政區\n例如：租屋 北門路\n也可以輸入：租金 安南區'
+    });
+  }
+
+  const searchKeyword = await resolveDictionaryKeyword(keyword);
+
+  let rows = (await searchRentalRows(searchKeyword))
+    .filter(item => !isBadSample(item))
+    .filter(item => toNumber(item.total_rent) > 0)
+    .filter(item => toNumber(item.total_rent) < 500000);
+
+  if (rows.length === 0) {
+    const citywideRows = (await getCitywideRentalRows())
+      .filter(item => !isBadSample(item))
+      .filter(item => toNumber(item.total_rent) > 0)
+      .filter(item => toNumber(item.total_rent) < 500000);
+
+    if (citywideRows.length > 0) {
+      return client.replyMessage(event.replyToken, createRentFlex(keyword, citywideRows, {
+        isFallback: true
+      }));
+    }
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `查無「${keyword}」附近足夠租屋行情資料。\n\n你可以改用：\n租屋 東區\n租金 安南區\n租屋 北門路`
+    });
+  }
+
+  return client.replyMessage(event.replyToken, createRentFlex(keyword, rows));
 }
 
 module.exports = app;
