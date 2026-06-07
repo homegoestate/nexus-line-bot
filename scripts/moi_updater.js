@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const axios = require('axios');
 const https = require('https');
 const path = require('path');
@@ -89,6 +90,14 @@ function toNumber(value) {
     const number = Number(cleaned);
 
     return Number.isFinite(number) ? number : 0;
+}
+
+function createSourceKey(prefix, values) {
+    const raw = [prefix, ...values]
+        .map(value => String(value || '').trim())
+        .join('|');
+
+    return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
 function debugCSVRows(label, rows) {
@@ -343,6 +352,15 @@ async function runUpdater() {
                     return address && totalRent > 0;
                 })
                 .map(row => {
+                    const sourceCode = getValue(row, ['編號']);
+
+                    const address = getValue(row, [
+                        '土地區段位置建物門牌',
+                        '土地位置建物門牌'
+                    ]);
+
+                    const transactionDate = getValue(row, ['交易年月日']);
+
                     const totalRent = toNumber(getValue(row, [
                         '總額元',
                         '租金總額元'
@@ -361,21 +379,29 @@ async function runUpdater() {
 
                     const unitPriceSqm = unitPriceSqmFromCSV || (areaSqm > 0 ? Math.round(totalRent / areaSqm) : 0);
 
+                    const floorInfo = getValue(row, ['移轉層次', '租賃層次']);
+
                     return {
                         city: '台南市',
                         transaction_type: '租賃',
-                        address: getValue(row, [
-                            '土地區段位置建物門牌',
-                            '土地位置建物門牌'
-                        ]),
+                        address,
                         building_type: getValue(row, ['建物型態']),
-                        transaction_date: getValue(row, ['交易年月日']),
+                        transaction_date: transactionDate,
                         total_area_sqm: areaSqm,
                         total_rent: totalRent,
                         unit_rent_sqm: unitPriceSqm,
                         unit_rent_ping: Math.round(unitPriceSqm * 3.30579),
-                        floor_info: getValue(row, ['移轉層次', '租賃層次']),
-                        notes: getValue(row, ['備註'])
+                        floor_info: floorInfo,
+                        notes: getValue(row, ['備註']),
+                        source_code: sourceCode,
+                        source_key: createSourceKey('rent', [
+                            sourceCode,
+                            address,
+                            transactionDate,
+                            totalRent,
+                            floorInfo
+                        ]),
+                        imported_at: new Date().toISOString()
                     };
                 });
 
@@ -418,10 +444,28 @@ async function runUpdater() {
                     return address && unitPriceSqm > 0;
                 })
                 .map(row => {
-                    let age = null;
+                    const sourceCode = getValue(row, ['編號']);
+
+                    const address = getValue(row, [
+                        '土地區段位置建物門牌',
+                        '土地位置建物門牌'
+                    ]);
 
                     const transactionDate = getValue(row, ['交易年月日']);
                     const buildDate = getValue(row, ['建築完成年月']);
+                    const buildingType = getValue(row, ['建物型態']);
+                    const floorInfo = getValue(row, ['移轉層次']);
+                    const totalPrice = toNumber(getValue(row, ['總價元', '總額元']));
+                    const totalAreaSqm = toNumber(getValue(row, [
+                        '建物移轉總面積平方公尺',
+                        '土地移轉總面積平方公尺'
+                    ]));
+                    const unitPriceSqm = toNumber(getValue(row, [
+                        '單價元平方公尺',
+                        '單價元/平方公尺'
+                    ]));
+
+                    let age = null;
 
                     if (transactionDate && buildDate) {
                         const transYear = parseInt(transactionDate.substring(0, 3), 10);
@@ -435,17 +479,27 @@ async function runUpdater() {
                     return {
                         city: '台南市',
                         transaction_type: '成屋',
-                        address: getValue(row, [
-                            '土地區段位置建物門牌',
-                            '土地位置建物門牌'
-                        ]),
-                        building_type: getValue(row, ['建物型態']),
+                        address,
+                        building_type: buildingType,
                         building_age: age,
-                        unit_price_sqm: toNumber(getValue(row, [
-                            '單價元平方公尺',
-                            '單價元/平方公尺'
-                        ])),
-                        notes: getValue(row, ['備註'])
+                        transaction_date: transactionDate,
+                        total_price: totalPrice,
+                        total_area_sqm: totalAreaSqm,
+                        unit_price_sqm: unitPriceSqm,
+                        unit_price_ping: Math.round(unitPriceSqm * 3.30579),
+                        floor_info: floorInfo,
+                        notes: getValue(row, ['備註']),
+                        source_code: sourceCode,
+                        source_key: createSourceKey('buy', [
+                            sourceCode,
+                            address,
+                            transactionDate,
+                            totalPrice,
+                            totalAreaSqm,
+                            unitPriceSqm,
+                            floorInfo
+                        ]),
+                        imported_at: new Date().toISOString()
                     };
                 });
 
@@ -456,8 +510,12 @@ async function runUpdater() {
             }
 
             if (cleanBuyData.length > 0) {
-                await insertInChunks('real_estate_transactions', cleanBuyData);
-                console.log(`✅ 成功匯入 ${cleanBuyData.length} 筆買賣資料！`);
+                await insertInChunks('real_estate_transactions', cleanBuyData, {
+                    mode: 'upsert_ignore',
+                    onConflict: 'source_key'
+                });
+
+                console.log(`✅ 成功匯入或略過重複買賣資料，共處理 ${cleanBuyData.length} 筆！`);
             } else {
                 console.warn('⚠️ 台南本期買賣資料為 0 筆，未匯入 real_estate_transactions。');
             }
