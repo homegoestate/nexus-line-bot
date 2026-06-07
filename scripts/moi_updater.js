@@ -21,11 +21,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
     realtime: { transport: WebSocket }
 });
 
-// ✅ 目前政府資料開放平台指向的本期 CSV ZIP 下載路徑
 const MOI_URLS = [
     'https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip',
-
-    // 備援：保留你原本的舊網址，但會先跑上面新版
     'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_rupload.zip'
 ];
 
@@ -55,26 +52,49 @@ function getErrorMessage(error) {
     if (error.response) {
         return `HTTP ${error.response.status} ${error.response.statusText || ''}`;
     }
-
     if (error.code) {
         return `${error.code}: ${error.message}`;
     }
-
     return error.message || String(error);
 }
 
 function isZipBuffer(buffer) {
     if (!buffer || buffer.length < 4) return false;
-
-    // ZIP 檔通常會以 PK 開頭
     return buffer[0] === 0x50 && buffer[1] === 0x4B;
 }
 
 function previewBuffer(buffer) {
     if (!buffer || buffer.length === 0) return '[empty response]';
-
     const textUtf8 = buffer.toString('utf8', 0, Math.min(buffer.length, 800));
     return textUtf8.replace(/\s+/g, ' ').slice(0, 500);
+}
+
+function getValue(row, fieldNames) {
+    for (const fieldName of fieldNames) {
+        if (row[fieldName] !== undefined && row[fieldName] !== null && String(row[fieldName]).trim() !== '') {
+            return String(row[fieldName]).trim();
+        }
+    }
+    return '';
+}
+
+function toNumber(value) {
+    if (value === undefined || value === null) return 0;
+    const cleaned = String(value).replace(/,/g, '').trim();
+    const number = Number(cleaned);
+    return Number.isFinite(number) ? number : 0;
+}
+
+function debugCSVRows(label, rows) {
+    console.log(`🔎 ${label} CSV 原始筆數：${rows.length}`);
+
+    if (rows.length > 0) {
+        console.log(`🔎 ${label} CSV 欄位名稱：`);
+        console.log(Object.keys(rows[0]).join(' | '));
+
+        console.log(`🔎 ${label} CSV 第一筆資料預覽：`);
+        console.log(JSON.stringify(rows[0], null, 2).slice(0, 1200));
+    }
 }
 
 async function downloadMOIDataWithRetry(urls, maxRetries = 5) {
@@ -162,8 +182,6 @@ async function runUpdater() {
     console.log('🚀 開始執行內政部實價登錄自動更新排程...');
 
     try {
-        console.log('📥 正在下載資料，已啟用新版下載網址、ZIP 檢查與重試機制...');
-
         const zipBuffer = await downloadMOIDataWithRetry(MOI_URLS, 5);
 
         const zip = new AdmZip(zipBuffer);
@@ -196,30 +214,64 @@ async function runUpdater() {
             console.log('📂 處理台南【租賃】資料...');
 
             const rentData = await parseMOICSV(rentFile.getData());
+            debugCSVRows('台南租賃', rentData);
 
             const cleanRentData = rentData
-                .filter(row => row['土地區段位置建物門牌'] && row['總額元'])
+                .filter(row => {
+                    const address = getValue(row, [
+                        '土地區段位置建物門牌',
+                        '土地位置建物門牌'
+                    ]);
+
+                    const totalRent = toNumber(getValue(row, [
+                        '總額元',
+                        '租金總額元'
+                    ]));
+
+                    return address && totalRent > 0;
+                })
                 .map(row => {
-                    const totalRent = Number(row['總額元']) || 0;
-                    const areaSqm = Number(row['建物移轉總面積平方公尺']) || 0;
-                    const unitPriceSqm = Number(row['單價元平方公尺']) || (areaSqm > 0 ? Math.round(totalRent / areaSqm) : 0);
+                    const totalRent = toNumber(getValue(row, [
+                        '總額元',
+                        '租金總額元'
+                    ]));
+
+                    const areaSqm = toNumber(getValue(row, [
+                        '建物移轉總面積平方公尺',
+                        '建物租賃總面積平方公尺',
+                        '租賃總面積平方公尺'
+                    ]));
+
+                    const unitPriceSqmFromCSV = toNumber(getValue(row, [
+                        '單價元平方公尺',
+                        '單價元/平方公尺'
+                    ]));
+
+                    const unitPriceSqm = unitPriceSqmFromCSV || (areaSqm > 0 ? Math.round(totalRent / areaSqm) : 0);
 
                     return {
                         city: '台南市',
                         transaction_type: '租賃',
-                        address: row['土地區段位置建物門牌'],
-                        building_type: row['建物型態'],
-                        transaction_date: row['交易年月日'],
+                        address: getValue(row, [
+                            '土地區段位置建物門牌',
+                            '土地位置建物門牌'
+                        ]),
+                        building_type: getValue(row, ['建物型態']),
+                        transaction_date: getValue(row, ['交易年月日']),
                         total_area_sqm: areaSqm,
                         total_rent: totalRent,
                         unit_rent_sqm: unitPriceSqm,
                         unit_rent_ping: Math.round(unitPriceSqm * 3.30579),
-                        floor_info: row['移轉層次'],
-                        notes: row['備註']
+                        floor_info: getValue(row, ['移轉層次', '租賃層次']),
+                        notes: getValue(row, ['備註'])
                     };
                 });
 
             console.log(`🧹 租賃資料清理完成，共 ${cleanRentData.length} 筆`);
+
+            if (rentData.length > 0 && cleanRentData.length === 0) {
+                throw new Error('台南租賃 CSV 有原始資料，但清理後為 0 筆，請檢查欄位名稱是否又異動。');
+            }
 
             if (cleanRentData.length > 0) {
                 await insertInChunks(
@@ -233,6 +285,8 @@ async function runUpdater() {
                 );
 
                 console.log(`✅ 成功匯入 ${cleanRentData.length} 筆租屋資料！`);
+            } else {
+                console.warn('⚠️ 台南本期租賃資料為 0 筆，未匯入 rental_transactions。');
             }
         }
 
@@ -241,15 +295,31 @@ async function runUpdater() {
             console.log('📂 處理台南【買賣】資料...');
 
             const buyData = await parseMOICSV(buyFile.getData());
+            debugCSVRows('台南買賣', buyData);
 
             const cleanBuyData = buyData
-                .filter(row => row['土地區段位置建物門牌'] && row['單價元平方公尺'])
+                .filter(row => {
+                    const address = getValue(row, [
+                        '土地區段位置建物門牌',
+                        '土地位置建物門牌'
+                    ]);
+
+                    const unitPriceSqm = toNumber(getValue(row, [
+                        '單價元平方公尺',
+                        '單價元/平方公尺'
+                    ]));
+
+                    return address && unitPriceSqm > 0;
+                })
                 .map(row => {
                     let age = null;
 
-                    if (row['交易年月日'] && row['建築完成年月']) {
-                        const transYear = parseInt(row['交易年月日'].substring(0, 3), 10);
-                        const buildYear = parseInt(row['建築完成年月'].substring(0, 3), 10);
+                    const transactionDate = getValue(row, ['交易年月日']);
+                    const buildDate = getValue(row, ['建築完成年月']);
+
+                    if (transactionDate && buildDate) {
+                        const transYear = parseInt(transactionDate.substring(0, 3), 10);
+                        const buildYear = parseInt(buildDate.substring(0, 3), 10);
 
                         if (!isNaN(transYear) && !isNaN(buildYear)) {
                             age = transYear - buildYear;
@@ -259,15 +329,25 @@ async function runUpdater() {
                     return {
                         city: '台南市',
                         transaction_type: '成屋',
-                        address: row['土地區段位置建物門牌'],
-                        building_type: row['建物型態'],
+                        address: getValue(row, [
+                            '土地區段位置建物門牌',
+                            '土地位置建物門牌'
+                        ]),
+                        building_type: getValue(row, ['建物型態']),
                         building_age: age,
-                        unit_price_sqm: Number(row['單價元平方公尺']) || 0,
-                        notes: row['備註']
+                        unit_price_sqm: toNumber(getValue(row, [
+                            '單價元平方公尺',
+                            '單價元/平方公尺'
+                        ])),
+                        notes: getValue(row, ['備註'])
                     };
                 });
 
             console.log(`🧹 買賣資料清理完成，共 ${cleanBuyData.length} 筆`);
+
+            if (buyData.length > 0 && cleanBuyData.length === 0) {
+                throw new Error('台南買賣 CSV 有原始資料，但清理後為 0 筆，請檢查欄位名稱是否又異動。');
+            }
 
             if (cleanBuyData.length > 0) {
                 await insertInChunks(
@@ -277,6 +357,8 @@ async function runUpdater() {
                 );
 
                 console.log(`✅ 成功匯入 ${cleanBuyData.length} 筆買賣資料！`);
+            } else {
+                console.warn('⚠️ 台南本期買賣資料為 0 筆，未匯入 real_estate_transactions。');
             }
         }
 
@@ -298,7 +380,7 @@ function parseMOICSV(buffer) {
             .pipe(iconv.decodeStream('big5'))
             .pipe(csv())
             .on('data', (data) => {
-                // 內政部 CSV 第二列常是英文欄位或說明列，這裡沿用你原本邏輯略過第一筆資料列
+                // 內政部 CSV 第二列常是英文欄位或說明列，這裡略過第一筆資料列
                 if (isFirstRow) {
                     isFirstRow = false;
                     return;
