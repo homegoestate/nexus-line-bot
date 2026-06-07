@@ -17,9 +17,21 @@ async function runUpdater() {
     console.log('🚀 開始執行內政部實價登錄自動更新排程...');
 
     try {
-        // 1. 下載內政部最新壓縮檔
-        console.log('📥 正在從內政部下載最新資料 (這可能需要幾十秒)...');
-        const response = await axios.get(MOI_URL, { responseType: 'arraybuffer' });
+        console.log('📥 正在從內政部下載最新資料 (已啟動防封鎖偽裝，請耐心等候幾十秒)...');
+        
+        // 🛡️ 破解核心：加上瀏覽器偽裝 (User-Agent) 與 3 分鐘超長等待時間 (180000ms)
+        const response = await axios.get(MOI_URL, { 
+            responseType: 'arraybuffer',
+            timeout: 180000, 
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': 'https://plvr.land.moi.gov.tw/',
+                'Connection': 'keep-alive'
+            }
+        });
+
         const zip = new AdmZip(response.data);
         const entries = zip.getEntries();
 
@@ -34,12 +46,12 @@ async function runUpdater() {
             console.log('📂 找到台南市【租賃】資料，開始清洗與匯入...');
             const rentData = await parseMOICSV(rentFile.getData());
             const cleanRentData = rentData
-                .filter(row => row['土地區段位置建物門牌'] && row['總額元']) // 過濾空資料
+                .filter(row => row['土地區段位置建物門牌'] && row['總額元']) 
                 .map(row => {
                     const totalRent = Number(row['總額元']) || 0;
                     const areaSqm = Number(row['建物移轉總面積平方公尺']) || 0;
                     const unitPriceSqm = Number(row['單價元平方公尺']) || (areaSqm > 0 ? Math.round(totalRent / areaSqm) : 0);
-                    const unitPricePing = Math.round(unitPriceSqm * 3.30579); // 換算成台坪單價
+                    const unitPricePing = Math.round(unitPriceSqm * 3.30579);
 
                     return {
                         city: '台南市',
@@ -56,7 +68,6 @@ async function runUpdater() {
                     };
                 });
 
-            // 批次寫入 Supabase (使用 upsert 避免重複)
             if (cleanRentData.length > 0) {
                 const { error } = await supabase.from('rental_transactions').upsert(cleanRentData, { onConflict: 'address, total_rent, floor_info', ignoreDuplicates: true });
                 if (error) console.error('⚠️ 租屋資料寫入警告:', error.message);
@@ -71,9 +82,8 @@ async function runUpdater() {
             console.log('📂 找到台南市【買賣】資料，開始清洗與匯入...');
             const buyData = await parseMOICSV(buyFile.getData());
             const cleanBuyData = buyData
-                .filter(row => row['土地區段位置建物門牌'] && row['單價元平方公尺']) // 只抓有單價的交易
+                .filter(row => row['土地區段位置建物門牌'] && row['單價元平方公尺']) 
                 .map(row => {
-                    // 簡單計算屋齡 (交易年 - 建築完成年)
                     let age = null;
                     if (row['交易年月日'] && row['建築完成年月']) {
                         const transYear = parseInt(row['交易年月日'].substring(0, 3));
@@ -83,7 +93,7 @@ async function runUpdater() {
 
                     return {
                         city: '台南市',
-                        transaction_type: '成屋', // A表主要為成屋買賣
+                        transaction_type: '成屋',
                         address: row['土地區段位置建物門牌'],
                         building_type: row['建物型態'],
                         building_age: age,
@@ -92,9 +102,7 @@ async function runUpdater() {
                     };
                 });
 
-            // 批次寫入 Supabase
             if (cleanBuyData.length > 0) {
-                // 因為買賣表沒有設 UNIQUE，這裡直接用 insert。若有重複，未來可再優化去重邏輯
                 const { error } = await supabase.from('real_estate_transactions').insert(cleanBuyData);
                 if (error) console.error('⚠️ 買賣資料寫入警告:', error.message);
                 else console.log(`✅ 成功匯入 ${cleanBuyData.length} 筆最新買賣資料！`);
@@ -109,19 +117,19 @@ async function runUpdater() {
     }
 }
 
-// 解析內政部特有的 BIG5 編碼 CSV 檔案 (並跳過第二行英文標題)
+// 解析內政部 BIG5 編碼 CSV 檔案
 function parseMOICSV(buffer) {
     return new Promise((resolve, reject) => {
         const results = [];
         let isFirstRow = true;
         const stream = Readable.from(buffer);
         
-        stream.pipe(iconv.decodeStream('big5')) // 內政部檔案是 BIG5 編碼
+        stream.pipe(iconv.decodeStream('big5'))
               .pipe(csv())
               .on('data', (data) => {
                   if (isFirstRow) { 
                       isFirstRow = false; 
-                      return; // 內政部 CSV 的第二行是英文欄位名稱，必須跳過
+                      return; 
                   }
                   results.push(data);
               })
