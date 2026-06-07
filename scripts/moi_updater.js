@@ -1,3 +1,4 @@
+const fs = require('fs');
 const axios = require('axios');
 const https = require('https');
 const path = require('path');
@@ -10,6 +11,7 @@ const { Readable } = require('stream');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const MOI_ZIP_PATH = process.env.MOI_ZIP_PATH || '';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
     console.error('❌ 缺少 SUPABASE_URL 或 SUPABASE_KEY，請確認 GitHub Secrets 是否設定完成。');
@@ -21,14 +23,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
     realtime: { transport: WebSocket }
 });
 
-// ✅ 只保留目前內政部實價登錄 OpenData 本期下載網址
 const MOI_URLS = [
     'https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip'
 ];
 
 const axiosClient = axios.create({
     responseType: 'arraybuffer',
-    timeout: 45000,
+    timeout: 300000,
     maxRedirects: 5,
     httpsAgent: new https.Agent({
         keepAlive: false,
@@ -36,7 +37,7 @@ const axiosClient = axios.create({
     }),
     validateStatus: status => status >= 200 && status < 400,
     headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/zip,application/octet-stream,*/*',
         'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
         'Connection': 'close',
@@ -141,13 +142,50 @@ async function downloadMOIDataWithRetry(urls, maxRetries = 3) {
         }
 
         if (attempt < maxRetries) {
-            const delaySeconds = attempt * 15;
+            const delaySeconds = attempt * 20;
             console.log(`⏳ 等待 ${delaySeconds} 秒後重試...`);
             await sleep(delaySeconds * 1000);
         }
     }
 
     throw new Error(`內政部資料下載失敗，已重試 ${maxRetries} 次。最後錯誤：${getErrorMessage(lastError)}`);
+}
+
+function loadZipBufferFromLocalFile() {
+    if (!MOI_ZIP_PATH) {
+        return null;
+    }
+
+    if (!fs.existsSync(MOI_ZIP_PATH)) {
+        console.warn(`⚠️ 找不到本機 ZIP 檔案：${MOI_ZIP_PATH}`);
+        return null;
+    }
+
+    console.log(`📦 使用 GitHub Actions 已下載的本機 ZIP：${MOI_ZIP_PATH}`);
+
+    const buffer = fs.readFileSync(MOI_ZIP_PATH);
+
+    console.log(`📦 本機 ZIP 檔案大小：約 ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+
+    if (!isZipBuffer(buffer)) {
+        console.warn('⚠️ 本機檔案不是 ZIP，前段內容如下：');
+        console.warn(previewBuffer(buffer));
+        throw new Error('本機 MOI_ZIP_PATH 不是 ZIP 檔案。');
+    }
+
+    console.log('✅ 本機 ZIP 格式檢查通過');
+    return buffer;
+}
+
+async function getZipBuffer() {
+    const localZipBuffer = loadZipBufferFromLocalFile();
+
+    if (localZipBuffer) {
+        return localZipBuffer;
+    }
+
+    console.log('⚠️ 未使用本機 ZIP，改由 Node.js 直接下載。');
+    return await downloadMOIDataWithRetry(MOI_URLS, 3);
 }
 
 function findZipEntry(entries, targetFileName) {
@@ -261,7 +299,7 @@ async function runUpdater() {
     console.log('🚀 開始執行內政部實價登錄自動更新排程...');
 
     try {
-        const zipBuffer = await downloadMOIDataWithRetry(MOI_URLS, 3);
+        const zipBuffer = await getZipBuffer();
 
         const zip = new AdmZip(zipBuffer);
         const entries = zip.getEntries();
