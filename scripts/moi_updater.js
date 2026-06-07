@@ -2,13 +2,19 @@ const axios = require('axios');
 const AdmZip = require('adm-zip');
 const csv = require('csv-parser');
 const iconv = require('iconv-lite');
+const WebSocket = require('ws'); // 🌟 新增通訊套件
 const { createClient } = require('@supabase/supabase-js');
 const { Readable } = require('stream');
 
 // 連接您的 Supabase 金庫
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// 🌟 將 WebSocket 天線裝到 Supabase 上，解決報錯！
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false },
+    global: { WebSocket: WebSocket }
+});
 
 // 內政部實價登錄「本期下載」API 網址
 const MOI_URL = 'https://plvr.land.moi.gov.tw/DownloadSeason?season=current&type=zip&fileName=lvr_rupload.zip';
@@ -19,7 +25,7 @@ async function runUpdater() {
     try {
         console.log('📥 正在從內政部下載最新資料 (已啟動防封鎖偽裝，請耐心等候幾十秒)...');
         
-        // 🛡️ 破解核心：加上瀏覽器偽裝 (User-Agent) 與 3 分鐘超長等待時間 (180000ms)
+        // 🛡️ 破解核心：加上瀏覽器偽裝 (User-Agent) 與等待時間
         const response = await axios.get(MOI_URL, { 
             responseType: 'arraybuffer',
             timeout: 180000, 
@@ -35,7 +41,7 @@ async function runUpdater() {
         const zip = new AdmZip(response.data);
         const entries = zip.getEntries();
 
-        // 2. 挑出台南市 (代碼D) 的【買賣 D_lvr_land_A】與【租賃 D_lvr_land_C】
+        // 挑出台南市 (代碼D) 的【買賣 D_lvr_land_A】與【租賃 D_lvr_land_C】
         const rentFile = entries.find(e => e.entryName === 'D_lvr_land_C.csv');
         const buyFile = entries.find(e => e.entryName === 'D_lvr_land_A.csv');
 
