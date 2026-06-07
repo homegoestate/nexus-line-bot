@@ -21,14 +21,47 @@ jobs:
       - name: Install Dependencies
         run: npm install axios adm-zip csv-parser iconv-lite ws @supabase/supabase-js
 
-      - name: Network Preflight Test
+      - name: Download MOI ZIP File
         run: |
-          echo "Testing MOI connection..."
-          curl -k -Iv --connect-timeout 20 --max-time 60 https://210.65.131.73:443 || true
-          echo "Network test finished."
+          mkdir -p moi-data
+
+          echo "Downloading MOI real estate ZIP file..."
+
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 20 \
+            --retry-all-errors \
+            --connect-timeout 60 \
+            --max-time 300 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36" \
+            -H "Referer: https://plvr.land.moi.gov.tw/DownloadOpenData" \
+            -o moi-data/lvr_landcsv.zip \
+            "https://plvr.land.moi.gov.tw/Download?fileName=lvr_landcsv.zip&type=zip"
+
+          echo "Downloaded file:"
+          ls -lh moi-data/lvr_landcsv.zip
+
+          echo "Checking ZIP header..."
+          python3 - <<'PY'
+          from pathlib import Path
+
+          file_path = Path("moi-data/lvr_landcsv.zip")
+          data = file_path.read_bytes()
+
+          if len(data) < 4:
+              raise SystemExit("Downloaded file is too small.")
+
+          if data[:2] != b"PK":
+              print(data[:500])
+              raise SystemExit("Downloaded file is not a ZIP file.")
+
+          print("ZIP header check passed.")
+          PY
 
       - name: Run MOI Updater Script
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          MOI_ZIP_PATH: moi-data/lvr_landcsv.zip
         run: node scripts/moi_updater.js
