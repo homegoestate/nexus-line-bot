@@ -1,7 +1,7 @@
 {
   "accounts": {
     "@604gpqef": { "nativeGreetingDisabledConfirmed": true },
-    "@528scwxf": { "nativeGreetingDisabledConfirmed": false },
-    "@375umdzq": { "nativeGreetingDisabledConfirmed": false }
+    "@528scwxf": { "nativeGreetingDisabledConfirmed": true },
+    "@375umdzq": { "nativeGreetingDisabledConfirmed": true }
   }
 }
