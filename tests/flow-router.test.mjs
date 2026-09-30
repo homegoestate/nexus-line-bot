@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { routeEvent, PILOT_PREFIX, MAX_POSTBACK_LENGTH, OWNER_REGISTER_URI, TEXT_TRIGGERS } from '../lib/flow-router.mjs';
+import { routeEvent, buildWelcomeReply, PILOT_PREFIX, MAX_POSTBACK_LENGTH, OWNER_REGISTER_URI, TEXT_TRIGGERS } from '../lib/flow-router.mjs';
 
 const textEvent = text => ({ type: 'message', message: { type: 'text', text } });
 const postEvent = data => ({ type: 'postback', postback: { data } });
@@ -32,15 +32,15 @@ function visibleText(value) {
   walk(value, node => { if (node.type === 'text') result.push(node.text); });
   return result.join('\n');
 }
-function allOutputs() {
-  const queue = Object.keys(TEXT_TRIGGERS).map(value => routeEvent(textEvent(value)));
+function allOutputs(options) {
+  const queue = Object.keys(TEXT_TRIGGERS).map(value => routeEvent(textEvent(value), options));
   const byRoute = new Map();
   while (queue.length) {
     const output = queue.shift();
     assert.ok(output);
     if (byRoute.has(output.route)) continue;
     byRoute.set(output.route, output);
-    for (const action of actions(output.messages, 'postback')) queue.push(routeEvent(postEvent(action.data)));
+    for (const action of actions(output.messages, 'postback')) queue.push(routeEvent(postEvent(action.data), options));
   }
   return [...byRoute.values()];
 }
@@ -354,5 +354,127 @@ test('all 70 states meet local LINE Flex limits, three-action cap and summary pr
         assert.ok(action.uri.length <= 1000);
       }
     }
+  }
+});
+
+const ACCOUNTS = ['@604gpqef', '@528scwxf', '@375umdzq'];
+const BRAND = '宏國地政|易丞地政';
+
+test('each allowlisted account has 70 routes and only its own registration query value', () => {
+  const base = new URL(OWNER_REGISTER_URI);
+  for (const account of ACCOUNTS) {
+    const outputs = allOutputs({ account });
+    assert.equal(outputs.length, 70);
+    let linkCount = 0;
+    for (const output of outputs) {
+      for (const action of actions(output.messages, 'uri')) {
+        linkCount++;
+        assert.equal(output.route, 'owner:guide:prepare');
+        const uri = new URL(action.uri);
+        assert.equal(uri.origin, base.origin);
+        assert.equal(uri.pathname, base.pathname);
+        assert.equal(uri.hash, base.hash);
+        assert.deepEqual([...uri.searchParams], [['view', 'register'], ['oa', account.slice(1)]]);
+        assert.doesNotMatch(action.uri, /%40|oa=@/);
+      }
+    }
+    assert.equal(linkCount, 1);
+  }
+  assert.equal(new URL(OWNER_REGISTER_URI).searchParams.get('oa'), '604gpqef', 'the legacy export remains unchanged');
+  assert.deepEqual(go('owner:guide:prepare'), routeEvent(postEvent(PILOT_PREFIX + 'owner:guide:prepare'), { account: '@604gpqef' }));
+});
+
+test('unknown or malformed account options fail closed for routes and welcome builder', () => {
+  const getterOptions = Object.defineProperty({}, 'account', { get() { throw new Error('must not read an account getter'); } });
+  const invalidOptions = [
+    null, false, 604, '@604gpqef', [], {}, { account: undefined }, { account: null },
+    { account: 604 }, { account: '604gpqef' }, { account: '@604' },
+    { account: '@528' }, { account: '@375' }, { account: '@unknown' },
+    { account: '@604gpqef ' }, { account: ' @604gpqef' }, { account: '@604gpqef\n' },
+    { account: '@604gpqef&oa=other' }, { account: '__proto__' },
+    { account: '@604gpqef', ownerRegisterUri: 'https://evil.example' },
+    Object.create({ account: '@604gpqef' }),
+    Object.assign(new Date(), { account: '@604gpqef' }), getterOptions,
+  ];
+  for (const options of invalidOptions) {
+    for (const event of [textEvent('宏國服務體驗'), postEvent(PILOT_PREFIX + 'owner:guide:prepare'), postEvent(PILOT_PREFIX + 'invalid')]) {
+      assert.equal(routeEvent(event, options), null);
+    }
+    assert.equal(buildWelcomeReply(options), null);
+  }
+});
+
+test('all cards and Flex alternatives use the exact unified brand', () => {
+  for (const account of ACCOUNTS) {
+    const outputs = [...allOutputs({ account }), routeEvent(postEvent(PILOT_PREFIX + 'invalid'), { account }), buildWelcomeReply({ account })];
+    for (const output of outputs) {
+      for (const message of output.messages.filter(item => item.type === 'flex')) {
+        assert.ok(message.altText.startsWith(BRAND + '：'));
+        assert.ok(message.altText.length <= 400);
+        const cards = message.contents.type === 'bubble' ? [message.contents] : message.contents.contents;
+        for (const card of cards) assert.equal(card.header.contents[0].text, BRAND);
+        assert.doesNotMatch(visibleText(message), /宏國地政｜服務體驗|宏國地政｜易丞地政/);
+      }
+    }
+  }
+});
+
+test('welcome contains one brief text and the original six-service Flex without handling follow', () => {
+  for (const account of ACCOUNTS) {
+    const options = { account };
+    const reply = buildWelcomeReply(options);
+    assert.equal(reply.route, 'welcome');
+    assert.deepEqual(reply.state, { flow: 'home', step: 'welcome' });
+    assert.equal(reply.messages.length, 2);
+    const [greeting, menu] = reply.messages;
+    assert.equal(greeting.type, 'text');
+    assert.ok(greeting.text.includes(BRAND));
+    assert.ok(greeting.text.length > 0 && greeting.text.length <= 300);
+    assert.match(greeting.text, /下方選擇目前的需求/);
+    assert.match(greeting.text, /整理準備事項/);
+    assert.match(greeting.text, /人工另行確認/);
+    assert.doesNotMatch(greeting.text, /姓名|電話|身分證|帳號|上傳|已受理|已收到|已指派|保證|立即回覆|\d+\s*(?:分鐘|小時|天)|優惠|免費/);
+    assert.deepEqual(menu, routeEvent(textEvent('宏國服務體驗'), options).messages[0]);
+    assert.equal(actions(menu, 'postback').length, 6);
+    assert.equal(actions(menu, 'message').length, 0);
+    assert.equal(actions(menu, 'uri').length, 0);
+    for (const action of actions(menu, 'postback')) {
+      assert.ok(action.label.length <= 20);
+      assert.notEqual(routeEvent(postEvent(action.data), options).route, 'invalid');
+    }
+    assert.equal(routeEvent({ type: 'follow', source: { type: 'user' } }, options), null);
+  }
+  assert.deepEqual(buildWelcomeReply(), buildWelcomeReply({ account: '@604gpqef' }));
+});
+
+test('event account spoofing cannot override verified options and calls keep no account state', () => {
+  for (const account of ACCOUNTS) {
+    const event = postEvent(PILOT_PREFIX + 'owner:guide:prepare');
+    event.account = '@604gpqef&oa=evil';
+    event.destination = 'UNTRUSTED_DESTINATION';
+    event.options = { account: '@528scwxf' };
+    event.postback.params = { account: '@375umdzq', oa: 'evil', uri: 'https://evil.example' };
+    const output = routeEvent(event, { account });
+    assert.deepEqual(output, routeEvent(postEvent(PILOT_PREFIX + 'owner:guide:prepare'), { account }));
+    assert.equal(new URL(actions(output.messages, 'uri')[0].uri).searchParams.get('oa'), account.slice(1));
+    assert.doesNotMatch(serialized(output), /UNTRUSTED_|evil\.example/);
+  }
+  assert.equal(actions(go('owner:guide:prepare').messages, 'uri')[0].uri, OWNER_REGISTER_URI);
+  const changed = buildWelcomeReply({ account: '@375umdzq' });
+  changed.messages[0].text = 'MUTATED';
+  changed.messages[1].contents.contents[0].header.contents[0].text = 'MUTATED';
+  assert.doesNotMatch(serialized(buildWelcomeReply({ account: '@375umdzq' })), /MUTATED/);
+});
+
+test('all accounts retain original keywords, group protection and standby protection', () => {
+  for (const account of ACCOUNTS) {
+    const options = { account };
+    for (const keyword of LEGACY) assert.equal(routeEvent(textEvent(keyword), options), null);
+    for (const type of ['group', 'room']) {
+      assert.equal(routeEvent({ ...textEvent('宏國服務體驗'), source: { type } }, options), null);
+      assert.equal(routeEvent({ ...postEvent(PILOT_PREFIX + 'owner:guide:prepare'), source: { type } }, options), null);
+    }
+    assert.equal(routeEvent({ ...textEvent('宏國服務體驗'), mode: 'standby' }, options), null);
+    assert.equal(routeEvent({ ...postEvent(PILOT_PREFIX + 'owner:guide:prepare'), mode: 'standby' }, options), null);
   }
 });
