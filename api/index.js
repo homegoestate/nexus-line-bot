@@ -27,8 +27,9 @@ app.get('/api', async (req, res) => {
   if (req.query.pilot === 'version') {
     // Read-only packaging probe: render in memory, never send a LINE reply.
     const probe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '宏國服務體驗' } }, PILOT_DESTINATION);
+    const welcomeProbe = await getPilotReply({ type: 'follow', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe' }, PILOT_DESTINATION);
     const ready = probe?.route === 'home';
-    return res.status(ready ? 200 : 503).json({ version: PILOT_VERSION, account: '@604gpqef', routerReady: ready, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'] });
+    return res.status(ready ? 200 : 503).json({ version: PILOT_VERSION, account: '@604gpqef', routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'] });
   }
   if (req.query.deep !== '1') {
     return res.status(200).send('LINE Bot is running.');

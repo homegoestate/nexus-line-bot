@@ -10,6 +10,8 @@ const sent = [];
 line.Client.prototype.replyMessage = async (replyToken, messages) => { sent.push({replyToken,messages}); return {}; };
 const app = require('../api/index');
 const { PILOT_DESTINATION } = require('../lib/pilot-dispatch');
+const policyPath = require.resolve('../welcome-policy.json');
+require(policyPath);
 
 test('signed webhook routes pilot once, preserves isolation and exposes a read-only package probe', async t => {
   const server=app.listen(0);
@@ -42,4 +44,61 @@ test('signed webhook routes pilot once, preserves isolation and exposes a read-o
   await post({...event,type:'postback',postback:{data:'hgpilot:v1:buy'}});
   for(let i=0;i<50&&sent.length<2;i++)await new Promise(resolve=>setTimeout(resolve,10));
   assert.equal(sent.length,2);
+});
+test('signed follow welcomes only confirmed 604 and never repeats welcome on normal messages', async t => {
+  const previousPolicy = require.cache[policyPath].exports;
+  const previousPilot = process.env.HG_SERVICE_PILOT_ENABLED;
+  const previousWelcome = process.env.HG_SERVICE_WELCOME_ENABLED;
+  delete process.env.HG_SERVICE_PILOT_ENABLED;
+  delete process.env.HG_SERVICE_WELCOME_ENABLED;
+  t.after(() => {
+    require.cache[policyPath].exports = previousPolicy;
+    if (previousPilot === undefined) delete process.env.HG_SERVICE_PILOT_ENABLED;
+    else process.env.HG_SERVICE_PILOT_ENABLED = previousPilot;
+    if (previousWelcome === undefined) delete process.env.HG_SERVICE_WELCOME_ENABLED;
+    else process.env.HG_SERVICE_WELCOME_ENABLED = previousWelcome;
+  });
+  const server = app.listen(0);
+  t.after(() => server.close());
+  await new Promise(resolve => server.once('listening', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/api`;
+  async function post(event, destination = PILOT_DESTINATION, valid = true) {
+    const body = JSON.stringify({ destination, events: [event] });
+    const signature = crypto.createHmac('sha256', valid ? 'test-secret' : 'wrong-secret').update(body).digest('base64');
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-line-signature': signature }, body });
+    await response.text();
+    // The webhook acknowledges before background handling finishes.
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return response.status;
+  }
+  const follow = { type: 'follow', mode: 'active', source: { type: 'user', userId: 'private-test-user' }, replyToken: 'follow-test-reply' };
+  const initialCount = sent.length;
+  require.cache[policyPath].exports = { accounts: { '@604gpqef': { nativeGreetingDisabledConfirmed: false } } };
+  assert.equal(await post({ ...follow, nativeGreetingDisabledConfirmed: true }), 200);
+  assert.equal(sent.length, initialCount);
+  require.cache[policyPath].exports = { accounts: { '@604gpqef': { nativeGreetingDisabledConfirmed: true } } };
+  assert.notEqual(await post(follow, PILOT_DESTINATION, false), 200);
+  await post(follow, 'other-account');
+  for (const changed of [{ source: { type: 'group' } }, { source: { type: 'room' } }, { mode: 'standby' }, { mode: undefined }, { replyToken: '' }]) await post({ ...follow, ...changed });
+  assert.equal(sent.length, initialCount);
+  process.env.HG_SERVICE_WELCOME_ENABLED = 'false';
+  await post(follow);
+  delete process.env.HG_SERVICE_WELCOME_ENABLED;
+  process.env.HG_SERVICE_PILOT_ENABLED = 'false';
+  await post(follow);
+  delete process.env.HG_SERVICE_PILOT_ENABLED;
+  assert.equal(sent.length, initialCount);
+  assert.equal(await post(follow), 200);
+  for (let i = 0; i < 50 && sent.length === initialCount; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(sent.length, initialCount + 1);
+  const { buildWelcomeReply } = await import('../lib/flow-router.mjs');
+  assert.deepEqual(sent.at(-1), { replyToken: follow.replyToken, messages: buildWelcomeReply({ account: '@604gpqef' }).messages });
+  assert.doesNotMatch(JSON.stringify(sent.at(-1).messages), /private-test-user|follow-test-reply/);
+  await post({ ...follow, type: 'message', message: { type: 'text', text: '您好' } });
+  await post({ ...follow, type: 'message', message: { type: 'text', text: '我要買房' } });
+  assert.equal(sent.length, initialCount + 1);
+  await post({ ...follow, type: 'message', message: { type: 'text', text: '宏國服務體驗' } });
+  assert.equal(sent.length, initialCount + 2);
+  assert.equal(sent.at(-1).messages.length, 1);
+  assert.equal(sent.at(-1).messages[0].type, 'flex');
 });
