@@ -87,6 +87,8 @@ test('signed account-specific HTTP webhook isolation with every external request
       assert.equal(health.account, '@' + account.key);
       assert.equal(health.routerReady, true);
       assert.equal(health.welcomeReady, false);
+      assert.equal(health.welcomeTextSha256, null);
+      assert.equal(health.welcomeContentRevision, require('../welcome-messages.json').version);
     }
     assert.equal(tokenRequests.length, 0);
     assert.equal(newReplies.length, 0);
@@ -195,6 +197,9 @@ test('signed account-specific HTTP webhook isolation with every external request
         if (selected.key === account.key) {
           assert.deepEqual(newReplies.at(-1).messages, buildWelcomeReply({ account: '@' + selected.key }).messages);
           assert.equal(newReplies.at(-1).account, selected.key);
+          const health = JSON.parse((await request(`/api?pilot=version&account=${selected.key}`)).text);
+          assert.equal(health.welcomeReady, true);
+          assert.equal(health.welcomeTextSha256, crypto.createHash('sha256').update(newReplies.at(-1).messages[0].text).digest('hex'));
         }
       }
     }

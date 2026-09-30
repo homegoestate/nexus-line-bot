@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { getPilotReply, PILOT_VERSION } = require('../lib/pilot-dispatch');
 const { resolveRequestAccount, isAccountEnabled, isAccountConfigReady } = require('../lib/service-accounts');
 const { createStatelessLineClient } = require('../lib/stateless-line-client');
+const { welcomeContentRevision } = require('../lib/welcome-content');
 
 const app = express();
 
@@ -43,7 +44,7 @@ app.get(['/api', '/'], selectAccount, async (req, res) => {
     const welcomeProbe = await getPilotReply({ type: 'follow', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe' }, account.destination, { account: account.key });
     const ready = probe?.route === 'home';
     const configReady = isAccountConfigReady(account.key);
-    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
+    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', welcomeContentRevision: welcomeContentRevision(), welcomeTextSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(welcomeProbe.messages[0].text).digest('hex') : null, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
   }
   if (!account.legacy) {
     const ready = isAccountEnabled(account.key) && isAccountConfigReady(account.key);

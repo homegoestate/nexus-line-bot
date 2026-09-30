@@ -434,11 +434,12 @@ test('welcome contains one brief text and the original six-service Flex without 
     const [greeting, menu] = reply.messages;
     assert.equal(greeting.type, 'text');
     assert.ok(greeting.text.includes(BRAND));
-    assert.ok(greeting.text.length > 0 && greeting.text.length <= 300);
-    assert.match(greeting.text, /下方選擇目前的需求/);
-    assert.match(greeting.text, /整理準備事項/);
-    assert.match(greeting.text, /人工另行確認/);
-    assert.doesNotMatch(greeting.text, /姓名|電話|身分證|帳號|上傳|已受理|已收到|已指派|保證|立即回覆|\d+\s*(?:分鐘|小時|天)|優惠|免費/);
+    assert.ok(greeting.text.length > 0 && greeting.text.length <= 500);
+    assert.match(greeting.text, /下方.*卡片/);
+    assert.match(greeting.text, /請代書協助下一步/);
+    assert.match(greeting.text, /確認/);
+    assert.match(greeting.text, /請先勿傳送身分證、帳戶或完整契約/);
+    assert.doesNotMatch(greeting.text, /\{Nickname\}|已受理|已收到|已指派|保證|立即回覆|\d+\s*(?:分鐘|小時|天)內回覆|優惠|免費|案件進度|完全看不到|優先處理|VIP/);
     assert.deepEqual(menu, routeEvent(textEvent('宏國服務體驗'), options).messages[0]);
     assert.equal(actions(menu, 'postback').length, 6);
     assert.equal(actions(menu, 'message').length, 0);
