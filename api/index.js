@@ -3,7 +3,9 @@ const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 const { waitUntil } = require('@vercel/functions');
 const crypto = require('crypto');
-const { getPilotReply, PILOT_DESTINATION, PILOT_VERSION } = require('../lib/pilot-dispatch');
+const { getPilotReply, PILOT_VERSION } = require('../lib/pilot-dispatch');
+const { resolveRequestAccount, isAccountEnabled, isAccountConfigReady } = require('../lib/service-accounts');
+const { createStatelessLineClient } = require('../lib/stateless-line-client');
 
 const app = express();
 
@@ -13,6 +15,7 @@ const config = {
 };
 
 const client = new line.Client(config);
+const serviceClients = new Map();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false }
 });
@@ -23,13 +26,28 @@ const DICTIONARY_CACHE_TTL_MS = Number(process.env.DICTIONARY_CACHE_TTL_MS || 30
 const MAX_CACHE_ENTRIES = 100;
 const queryCache = new Map();
 
-app.get('/api', async (req, res) => {
+function selectAccount(req, res, next) {
+  try {
+    req.serviceAccount = resolveRequestAccount(req.query, req.originalUrl || req.url);
+    return next();
+  } catch {
+    return res.status(400).json({ error: 'Invalid account selector' });
+  }
+}
+
+app.get(['/api', '/'], selectAccount, async (req, res) => {
+  const account = req.serviceAccount;
   if (req.query.pilot === 'version') {
     // Read-only packaging probe: render in memory, never send a LINE reply.
-    const probe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '宏國服務體驗' } }, PILOT_DESTINATION);
-    const welcomeProbe = await getPilotReply({ type: 'follow', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe' }, PILOT_DESTINATION);
+    const probe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '宏國服務體驗' } }, account.destination, { account: account.key });
+    const welcomeProbe = await getPilotReply({ type: 'follow', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe' }, account.destination, { account: account.key });
     const ready = probe?.route === 'home';
-    return res.status(ready ? 200 : 503).json({ version: PILOT_VERSION, account: '@604gpqef', routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'] });
+    const configReady = isAccountConfigReady(account.key);
+    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
+  }
+  if (!account.legacy) {
+    const ready = isAccountEnabled(account.key) && isAccountConfigReady(account.key);
+    return res.status(ready ? 200 : 503).json({ status: ready ? 'ok' : 'unavailable', account: account.account });
   }
   if (req.query.deep !== '1') {
     return res.status(200).send('LINE Bot is running.');
@@ -64,9 +82,29 @@ app.get('/api', async (req, res) => {
 });
 
 function registerWebhook(path, label) {
-  app.post(path, line.middleware(config), (req, res) => {
+  app.post(path, selectAccount, (req, res, next) => {
+    const account = req.serviceAccount;
+    if (account.legacy) return line.middleware(config)(req, res, next);
+    if (!isAccountConfigReady(account.key)) return res.status(503).json({ error: 'Account configuration unavailable' });
+    if (!isAccountEnabled(account.key)) return res.status(503).json({ error: 'Account service unavailable' });
+    // Select the matching signature verifier before any JSON/body parser runs.
+    const middleware = line.middleware({ channelSecret: process.env[account.secretEnv] });
+    return middleware(req, res, error => {
+      if (error) return res.status(error.statusCode === 400 ? 400 : 401).json({ error: 'Invalid LINE webhook' });
+      return next();
+    });
+  }, (req, res) => {
+    const account = req.serviceAccount;
+    if (!account.legacy && req.body?.destination !== account.destination) {
+      return res.status(403).json({ error: 'Account destination mismatch' });
+    }
+    if (!account.legacy && !Array.isArray(req.body?.events)) {
+      return res.status(400).json({ error: 'Invalid LINE webhook' });
+    }
     const events = req.body.events || [];
-    const work = Promise.allSettled(events.map(event => handleEvent(event, req.body.destination))).then(results => {
+    const work = Promise.allSettled(events.map(event => account.legacy
+      ? handleEvent(event, req.body.destination)
+      : handleServiceEvent(event, req.body.destination, account))).then(results => {
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`${label} event ${index} failed:`, formatError(result.reason));
@@ -89,6 +127,21 @@ function registerWebhook(path, label) {
 
 registerWebhook('/api', 'Webhook');
 registerWebhook('/', 'Webhook root');
+
+async function handleServiceEvent(event, destination, account) {
+  const pilotReply = await getPilotReply(event, destination, { account: account.key });
+  if (!pilotReply) return null;
+  if (!serviceClients.has(account.key)) {
+    serviceClients.set(account.key, createStatelessLineClient({
+      channelId: account.channelId,
+      channelSecret: process.env[account.secretEnv],
+    }));
+  }
+  const result = await serviceClients.get(account.key).replyMessage(event.replyToken, pilotReply.messages);
+  console.info(JSON.stringify({ type: 'service_pilot_render', version: PILOT_VERSION, account: account.account,
+    flow: pilotReply.state?.flow || 'unavailable', step: pilotReply.state?.step || 'unavailable' }));
+  return result;
+}
 
 function toFullWidth(str) {
   return String(str || '').replace(/[0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
