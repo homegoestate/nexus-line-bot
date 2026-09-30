@@ -3,6 +3,7 @@ const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 const { waitUntil } = require('@vercel/functions');
 const crypto = require('crypto');
+const { getPilotReply, PILOT_DESTINATION, PILOT_VERSION } = require('../lib/pilot-dispatch');
 
 const app = express();
 
@@ -23,6 +24,12 @@ const MAX_CACHE_ENTRIES = 100;
 const queryCache = new Map();
 
 app.get('/api', async (req, res) => {
+  if (req.query.pilot === 'version') {
+    // Read-only packaging probe: render in memory, never send a LINE reply.
+    const probe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '宏國服務體驗' } }, PILOT_DESTINATION);
+    const ready = probe?.route === 'home';
+    return res.status(ready ? 200 : 503).json({ version: PILOT_VERSION, account: '@604gpqef', routerReady: ready, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'] });
+  }
   if (req.query.deep !== '1') {
     return res.status(200).send('LINE Bot is running.');
   }
@@ -58,7 +65,7 @@ app.get('/api', async (req, res) => {
 function registerWebhook(path, label) {
   app.post(path, line.middleware(config), (req, res) => {
     const events = req.body.events || [];
-    const work = Promise.allSettled(events.map(handleEvent)).then(results => {
+    const work = Promise.allSettled(events.map(event => handleEvent(event, req.body.destination))).then(results => {
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`${label} event ${index} failed:`, formatError(result.reason));
@@ -289,7 +296,16 @@ async function resolveDictionaryKeyword(keyword) {
   }, DICTIONARY_CACHE_TTL_MS);
 }
 
-async function handleEvent(event) {
+async function handleEvent(event, destination) {
+  const pilotReply = await getPilotReply(event, destination);
+  if (pilotReply) {
+    // Reply only to the initiating customer. Never push, broadcast or write case records.
+    const result = await client.replyMessage(event.replyToken, pilotReply.messages);
+    // Fixed UI categories only. Event counts are NOT distinct people, leads or revenue.
+    console.info(JSON.stringify({ type: 'service_pilot_render', version: PILOT_VERSION,
+      flow: pilotReply.state?.flow || 'unavailable', step: pilotReply.state?.step || 'unavailable' }));
+    return result;
+  }
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
