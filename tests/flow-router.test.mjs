@@ -360,8 +360,7 @@ test('all 70 states meet local LINE Flex limits, three-action cap and summary pr
 const ACCOUNTS = ['@604gpqef', '@528scwxf', '@375umdzq'];
 const BRAND = '宏國地政|易丞地政';
 
-test('each allowlisted account has 70 routes and only its own registration query value', () => {
-  const base = new URL(OWNER_REGISTER_URI);
+test('each allowlisted account has 70 routes and the same formal registration URI', () => {
   for (const account of ACCOUNTS) {
     const outputs = allOutputs({ account });
     assert.equal(outputs.length, 70);
@@ -370,11 +369,7 @@ test('each allowlisted account has 70 routes and only its own registration query
       for (const action of actions(output.messages, 'uri')) {
         linkCount++;
         assert.equal(output.route, 'owner:guide:prepare');
-        const uri = new URL(action.uri);
-        assert.equal(uri.origin, base.origin);
-        assert.equal(uri.pathname, base.pathname);
-        assert.equal(uri.hash, base.hash);
-        assert.deepEqual([...uri.searchParams], [['view', 'register'], ['oa', account.slice(1)]]);
+        assert.equal(action.uri, OWNER_REGISTER_URI);
         assert.doesNotMatch(action.uri, /%40|oa=@/);
       }
     }
@@ -382,6 +377,16 @@ test('each allowlisted account has 70 routes and only its own registration query
   }
   assert.equal(new URL(OWNER_REGISTER_URI).searchParams.get('oa'), '604gpqef', 'the legacy export remains unchanged');
   assert.deepEqual(go('owner:guide:prepare'), routeEvent(postEvent(PILOT_PREFIX + 'owner:guide:prepare'), { account: '@604gpqef' }));
+});
+
+test('all allowlisted accounts produce identical output for every reachable route', () => {
+  const outputsByAccount = ACCOUNTS.map(account => new Map(allOutputs({ account }).map(output => [output.route, output])));
+  assert.deepEqual([...outputsByAccount[0].keys()].length, 70);
+  for (const [route, expected] of outputsByAccount[0]) {
+    for (const accountOutputs of outputsByAccount.slice(1)) {
+      assert.deepEqual(accountOutputs.get(route), expected, `${route} must be identical across accounts`);
+    }
+  }
 });
 
 test('unknown or malformed account options fail closed for routes and welcome builder', () => {
@@ -456,7 +461,7 @@ test('event account spoofing cannot override verified options and calls keep no 
     event.postback.params = { account: '@375umdzq', oa: 'evil', uri: 'https://evil.example' };
     const output = routeEvent(event, { account });
     assert.deepEqual(output, routeEvent(postEvent(PILOT_PREFIX + 'owner:guide:prepare'), { account }));
-    assert.equal(new URL(actions(output.messages, 'uri')[0].uri).searchParams.get('oa'), account.slice(1));
+    assert.equal(actions(output.messages, 'uri')[0].uri, OWNER_REGISTER_URI);
     assert.doesNotMatch(serialized(output), /UNTRUSTED_|evil\.example/);
   }
   assert.equal(actions(go('owner:guide:prepare').messages, 'uri')[0].uri, OWNER_REGISTER_URI);
