@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>房貸財力資料清單｜離線互動示範</title>
+<style>
+:root{color-scheme:light;--teal:#167d8d;--orange:#b8692b;--purple:#72539c}*{box-sizing:border-box}body{margin:0;background:#eaf1f3;color:#233a42;font:15px/1.6 system-ui,-apple-system,"Microsoft JhengHei",sans-serif}main{max-width:480px;margin:auto;padding:16px}.banner{padding:18px;background:white;border-radius:18px;box-shadow:0 4px 18px #143c4210}.badge{display:inline-block;background:#fff1cc;color:#765522;padding:4px 9px;border-radius:8px;font-size:12px;font-weight:700}h1{font-size:22px;line-height:1.4;margin:12px 0 6px}p{margin:6px 0}small,.help{font-size:12px;line-height:1.7;color:#576970;display:block}button,select{font:inherit;max-width:100%;border:1px solid #b5c9ce;border-radius:9px;background:white;color:#254c57;padding:10px;cursor:pointer;min-height:44px}button:hover{background:#eff7f7}button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid #da8d40;outline-offset:2px}button:disabled{opacity:.45;cursor:wait}select{width:100%;margin-top:4px}label{display:block;font-size:13px;margin:10px 0}.tools{display:flex;flex-wrap:wrap;gap:7px}.tools button{font-size:12px;padding:8px}details{margin-top:12px}summary{cursor:pointer;font-size:13px}.status-note{margin:12px 0;padding:12px;background:#fff8e7;border-radius:12px;font-size:13px;min-height:52px;overflow-wrap:anywhere}.latest-link{display:block;text-align:right;color:#5c447a;font-size:13px}.card{margin:18px 0;background:white;border-radius:18px;overflow:hidden;box-shadow:0 5px 20px #21464f13}.card.old{border:1px solid #cedbdf;box-shadow:none}.head{padding:18px;background:var(--purple);color:white}.old .head{background:#788892}.head h2{font-size:18px;line-height:1.4;margin:0 0 8px}.stamp{font-size:12px}.bar{height:7px;margin:10px 0 6px;background:#ffffff40;border-radius:8px}.fill{height:100%;background:#fff;border-radius:8px}.stage{padding:10px 16px;background:#f1f6f7;font-weight:700;font-size:13px}.stage.closing{background:#f0eaf6;color:#614586}.stage.supplemental{background:#fcf0e4;color:#9a5523}.section{padding:0 16px}.section h3{font-size:13px;font-weight:700;color:#506973;margin:14px 0 6px}.empty{padding:0 0 8px}.item{border-left:4px solid var(--color);padding:12px;background:#f7f9fa;margin:8px 0 12px;border-radius:9px}.item strong{display:block;font-size:15px}.item .state{font-size:12px;color:#264e58;margin-top:6px;font-weight:700;overflow-wrap:anywhere}.item .request{color:#72539c}.buttons{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.buttons button{font-size:13px;padding:8px}.buttons .primary{background:#edf7f8;border-color:#8fbcc4}.buttons .staff{background:#f5effb;border-color:#b9a3cf}.card footer{padding:14px 16px;background:#f5f3f8;font-size:12px;line-height:1.7}.page-footer{padding:10px 4px;font-size:12px;color:#5d7178}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:white;padding:12px;border-radius:12px}#log{max-height:150px;overflow:auto;padding-left:20px;font-size:12px}.case-label{margin:12px 0 0;font-size:12px;color:#526b74}.warning{color:#865020}a{color:#236676} @media(max-width:360px){main{padding:10px}.head,.banner{padding:14px}.section{padding:0 12px}.item{padding:10px}}
+</style></head><body>
+<main><header class="banner"><span class="badge">示範資料，未連線 LINE</span><h1>房貸財力資料清單</h1><p class="help">客戶主要提供適用的財力資料；身分證明、房地資料、買賣契約由公司承辦提供銀行，不需您再交。點選後下方出新版卡，舊卡保留。此頁沒有寄送訊息、實際收件或送銀行。</p>
+<label>示範視角<select id="role"><option value="customer">客戶：自行標記與申請</option><option value="staff">承辦：核對與核定（獨立示範）</option></select></label>
+<small id="roleHint">客戶只能修改自報或申請不適用；承辦收件確認獨立處理。</small>
+<details><summary>示範個案與防護測試</summary><label>個案適用配置<select id="scenario"><option value="salary">薪資收入</option><option value="cash">現金領薪</option><option value="self">自營收入・稅制待確認</option><option value="self401">自營・配置401（核定示範）</option><option value="self403">自營・配置403（核定示範）</option><option value="self405">自營・配置405（核定示範）</option><option value="professional">專業接案</option><option value="retired">退休收入</option><option value="rental">租金收入</option><option value="mixed">混合收入：薪資＋租金</option><option value="assets">薪資＋按需存款佐證（配置示範）</option><option value="long">長清單分頁測試（非客戶必備清單）</option></select></label>
+<div class="tools"><button id="duplicate">重播相同事件</button><button id="burst">模擬連點 3 次</button><button id="unknown">未知文件測試</button><button id="reset">重設此示範個案</button></div><small>各示範個案各自保留記憶體進度；重整即清除。長清單僅測試排版與 JSON 分頁，不代表每人全交。</small><details><summary>本頁操作紀錄</summary><ol id="log"></ol></details></details>
+</header><p id="caseLabel" class="case-label"></p><div id="notice" class="status-note" role="status" aria-live="polite">請選適用收入資料標記。月份、替代證明与額外補件由承辦依銀行要求確認，不要求每人交全部收入或資產。</div><a href="#latest" class="latest-link">↓ 前往最新進度卡</a><div id="chat"></div>
+<details><summary>最新版 LINE Flex JSON（未寄送）</summary><pre id="json"></pre></details><footer class="page-footer">清單分類依官方查核結果更新，查核日 2026-10-06；不代表特定銀行每案要求相同。<br><a href="https://service.ctbcbank.com/FAQ/Page01?kmid=4679" target="_blank" rel="noopener noreferrer">中國信託文件說明</a> · <a href="https://bank.sinopac.com/sinopacBT/webevents/mortgage/index.html" target="_blank" rel="noopener noreferrer">永豐房貸說明</a><br>個人申請及聯徵同意走銀行正式管道。賣方過戶資料屬獨立卡種；此展示不包含證件、圖片或檔案上傳。</footer></main>
+<script>(function (root) {
+  'use strict';
+  const ID = /^[A-Za-z0-9_-]{1,64}$/;
+  const colors = { identity: '#167D8D', income: '#B8692B', closing: '#72539C' };
+  const sources = { checkedOn: '2026-10-06', workflowUpdatedOn: '2026-10-06', workflowEvidence: 'Sentinel_f5d309ea63708191a1b5167236d7e520', urls: ['https://service.ctbcbank.com/FAQ/Page01?kmid=4679', 'https://bank.sinopac.com/sinopacBT/webevents/mortgage/index.html'] };
+  const doc = (id, group, title, note, tone = 'identity', stage = 'initial', responsibility = 'customer') => Object.freeze({ id, group, title, note, color: colors[tone], stage, responsibility });
+  const catalog = Object.freeze([
+    doc('A01', '公司承辦提供', '借款人身分證明', '由公司承辦提供給銀行，不要求客戶再提供；實際送件須另確認。', 'identity', 'company', 'company'),
+    doc('A02', '基本身分', '銀行指定第二證件', '只有銀行要求才列入；證件種類待銀行確認。'),
+    doc('A03', '基本身分', '戶籍／家庭關係資料', '依銀行需求提供；不預設要求記事完整戶籍。'),
+    doc('A04', '財力分類', '所得或收入證明', '分類標題，不重複計為另一項文件；以實際收入分支顯示。', 'income', 'category', 'category'),
+    doc('A05', '財力', '工作／投保證明', '只有銀行要求才列入；文件種類待銀行確認。', 'income'),
+    doc('A06', '公司承辦提供', '本次房地資料', '由公司承辦提供給銀行，不要求客戶再提供；實際送件須另確認。', 'identity', 'company', 'company'),
+    doc('A07', '公司承辦提供', '買賣契約', '購屋個案由公司承辦提供給銀行；責任歸屬不代表已送件。', 'identity', 'company', 'company'),
+    doc('A08', '轉貸', '原貸繳息／還款資料', '轉貸個案適用；期間與格式待銀行確認。'),
+    doc('A11', '依參與角色', '共同借款人資料', '僅有共同借款人且銀行要求時出現；不預設配偶角色。'),
+    doc('A12', '依參與角色', '保證人資料', '僅實際需要且承辦確認時出現；不預設保證人或配偶保證人。'),
+    doc('A13', '依參與角色', '抵押物提供人資料', '僅有該角色且銀行要求時出現。'),
+    doc('A14', '補充資產分類', '其他資產佐證', '分類標題；存款、定存、股票、基金、保單按需選取，非全部交。', 'income', 'category', 'category'),
+    doc('I01', '薪資收入', '薪資收入佐證', '薪轉、薪資單、扣繳、所得等依銀行指定；非通用任意擇一。', 'income'),
+    doc('I02', '現金領薪', '現金領薪佐證', '薪資、雇主或其他替代佐證由銀行確認；不預設單一通用文件。', 'income'),
+    doc('I03', '自營收入', '自營收入佐證', '401／403／405依適用稅制配置，非全部繳交；期間待銀行確認。', 'income'),
+    doc('T401', '自營收入・已確認適用表單', '401 自營收入佐證', '僅在承辦確認適用此表單時配置，不同時要求403／405；期間待銀行確認。', 'income'),
+    doc('T403', '自營收入・已確認適用表單', '403 自營收入佐證', '僅在承辦確認適用此表單時配置，不同時要求401／405；期間待銀行確認。', 'income'),
+    doc('T405', '自營收入・已確認適用表單', '405 自營收入佐證', '僅在承辦確認適用此表單時配置，不同時要求401／403；期間待銀行確認。', 'income'),
+    doc('I04', '專業接案', '專業／接案收入佐證', '報酬、扣繳、所得或契約等由銀行確認所需組合與期間。', 'income'),
+    doc('I05', '退休收入', '退休金收入佐證', '退休金可依銀行要求作適用收入佐證；替代證明待確認。', 'income'),
+    doc('I06', '租金收入', '租約與入帳佐證', '租金收入依銀行需求提供租約及入帳佐證；期間待確認。', 'income'),
+    doc('I07', '混合收入分類', '混合收入整理', '分類標題；以實際薪資、租金等收入分支顯示，不重複計一項。', 'income', 'category', 'category'),
+    doc('S01', '按需補充資產', '存款佐證', '僅承辦確認此個案需要時選取；不在此頁輸入金額或帳號。', 'income', 'supplemental'),
+    doc('S02', '按需補充資產', '定存佐證', '僅承辦確認此個案需要時選取；期間與格式由銀行確認。', 'income', 'supplemental'),
+    doc('S03', '按需補充資產', '股票資產佐證', '按需補充，非每人必交；提供管道由承辦銀行確認。', 'income', 'supplemental'),
+    doc('S04', '按需補充資產', '基金資產佐證', '按需補充，非每人必交；提供管道由承辦銀行確認。', 'income', 'supplemental'),
+    doc('S05', '按需補充資產', '保單資產佐證', '僅按需作資產佐證，不代表須購買房貸壽險。', 'income', 'supplemental'),
+    doc('C01', '後段通知', '用印／電子簽約', '依銀行通知辦理；印章自備方式依通知，不預設代刻授權。', 'closing', 'closing'),
+    doc('C02', '後段通知', '設定正本契約', '設定階段依銀行及承辦通知辦理，不算初次缺件。', 'closing', 'closing'),
+    doc('C03', '後段通知', '撥款／還款帳戶確認', '透過銀行正式管道確認；此原型不輸入或保存帳號。', 'closing', 'closing'),
+    doc('C04', '後段通知', '原抵押塗銷資料', '僅涉及原抵押塗銷時適用，依個案通知。', 'closing', 'closing'),
+    doc('C05', '後段通知', '火險／地震險安排', '依銀行及個案通知辦理；房貸壽險不列普遍必需。', 'closing', 'closing')
+  ]);
+  const byId = new Map(catalog.map(x => [x.id, x]));
+  const customerCatalog = Object.freeze(catalog.filter(d => d.responsibility === 'customer'));
+  const companyCatalog = Object.freeze(catalog.filter(d => d.responsibility === 'company'));
+  const actions = ['report', 'unreport', 'requestNotApplicable', 'withdrawNotApplicable', 'verify', 'unverify', 'approveNotApplicable', 'rejectNotApplicable', 'applicable', 'companySubmit', 'companyUnsubmit'];
+  const customerActions = actions.slice(0, 4);
+  const validId = x => typeof x === 'string' && ID.test(x);
+  const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+  const keysAre = (x, keys) => plain(x) && Object.keys(x).length === keys.length && keys.every(k => Object.hasOwn(x, k));
+  const copy = x => JSON.parse(JSON.stringify(x));
+  function resolveItems(config = {}) {
+    if (!plain(config) || Object.keys(config).some(k => !['purpose', 'incomes', 'bankRequired', 'bankConfirmed', 'assets', 'closing', 'taxForm'].includes(k))) throw Error('invalid configuration');
+    const { purpose = 'purchase', incomes = ['salary'], bankRequired = [], bankConfirmed = false, assets = [], closing = [], taxForm = null } = config;
+    const branches = { salary: 'I01', cash: 'I02', self: 'I03', professional: 'I04', retired: 'I05', rental: 'I06' };
+    if (!['purchase', 'refinance', 'other'].includes(purpose) || !Array.isArray(incomes) || incomes.length < 1 || incomes.some(i => !Object.hasOwn(branches, i)) || new Set(incomes).size !== incomes.length || !Array.isArray(bankRequired) || bankRequired.some(i => !['A02', 'A03', 'A05', 'A08', 'A11', 'A12', 'A13'].includes(i)) || !Array.isArray(assets) || assets.some(i => !['S01', 'S02', 'S03', 'S04', 'S05'].includes(i)) || !Array.isArray(closing) || closing.some(i => !['C01', 'C02', 'C03', 'C04', 'C05'].includes(i)) || typeof bankConfirmed !== 'boolean' || ![null,'401','403','405'].includes(taxForm) || (taxForm !== null && !incomes.includes('self')) || ((bankRequired.length + assets.length + closing.length > 0 || taxForm !== null) && !bankConfirmed)) throw Error('invalid configuration');
+    return [...new Set([...incomes.map(i => i === 'self' && taxForm !== null ? 'T'+taxForm : branches[i]), ...bankRequired, ...assets, ...closing])];
+  }
+  function resolveCompanyItems(purpose = 'purchase') {
+    if (!['purchase', 'refinance', 'other'].includes(purpose)) throw Error('invalid purpose');
+    return ['A01', 'A06', ...(purpose === 'purchase' ? ['A07'] : [])];
+  }
+  function createState(caseId = 'case_demo', userId = 'user_demo', items = resolveItems(), companyItems = resolveCompanyItems()) {
+    if (!validId(caseId) || !validId(userId) || !Array.isArray(items) || items.length < 1 || items.length > customerCatalog.length || new Set(items).size !== items.length || items.some(id => !byId.has(id) || byId.get(id).responsibility !== 'customer') || !Array.isArray(companyItems) || companyItems.length > companyCatalog.length || new Set(companyItems).size !== companyItems.length || companyItems.some(id => !byId.has(id) || byId.get(id).responsibility !== 'company')) throw Error('invalid state input');
+    return { caseId, userId, version: 1, items: items.map(id => ({ id, reported: false, verified: false, applicable: true, notApplicableRequested: false })), companyItems: companyItems.map(id => ({ id, submitted: false })), events: [] };
+  }
+  function validState(s) {
+    return keysAre(s, ['caseId', 'userId', 'version', 'items', 'companyItems', 'events']) && validId(s.caseId) && validId(s.userId) && Number.isSafeInteger(s.version) && s.version >= 1 && Array.isArray(s.items) && s.items.length > 0 && s.items.length <= customerCatalog.length && new Set(s.items.map(i => i && i.id)).size === s.items.length && s.items.every(i => keysAre(i, ['id', 'reported', 'verified', 'applicable', 'notApplicableRequested']) && byId.has(i.id) && byId.get(i.id).responsibility === 'customer' && ['reported', 'verified', 'applicable', 'notApplicableRequested'].every(k => typeof i[k] === 'boolean') && (i.applicable || (!i.reported && !i.verified && !i.notApplicableRequested))) && Array.isArray(s.companyItems) && s.companyItems.length <= companyCatalog.length && new Set(s.companyItems.map(i => i && i.id)).size === s.companyItems.length && s.companyItems.every(i => keysAre(i, ['id', 'submitted']) && byId.has(i.id) && byId.get(i.id).responsibility === 'company' && typeof i.submitted === 'boolean') && Array.isArray(s.events) && new Set(s.events).size === s.events.length && s.events.every(validId);
+  }
+  function validEvent(e) {
+    return keysAre(e, ['eventId', 'caseId', 'itemId', 'version', 'action']) && validId(e.eventId) && validId(e.caseId) && validId(e.itemId) && Number.isSafeInteger(e.version) && e.version >= 1 && actions.includes(e.action);
+  }
+  function transition(state, event, principal) {
+    const fail = code => ({ state, code, changed: false });
+    if (!validState(state)) return fail('INVALID_STATE');
+    if (!principal || principal.authenticated !== true || !validId(principal.userId) || !Array.isArray(principal.caseIds) || !principal.caseIds.every(validId) || !principal.caseIds.includes(state.caseId)) return fail('AUTH_REQUIRED');
+    if (!validEvent(event)) return fail('INVALID_INPUT');
+    if (event.caseId !== state.caseId) return fail('CASE_MISMATCH');
+    if (!['customer', 'staff'].includes(principal.role) || principal.role === 'customer' && principal.userId !== state.userId) return fail('USER_MISMATCH');
+    if (!customerActions.includes(event.action) && principal.role !== 'staff') return fail('STAFF_REQUIRED');
+    if (customerActions.includes(event.action) && principal.role !== 'customer') return fail('CUSTOMER_REQUIRED');
+    if (state.events.includes(event.eventId)) return fail('DUPLICATE_EVENT');
+    if (event.version !== state.version) return fail('STALE_VERSION');
+    if (['companySubmit', 'companyUnsubmit'].includes(event.action)) {
+      if (!state.companyItems.some(i => i.id === event.itemId)) return fail('UNKNOWN_COMPANY_ITEM');
+      if (state.version === Number.MAX_SAFE_INTEGER) return fail('VERSION_EXHAUSTED');
+      const next = copy(state);
+      next.companyItems.find(i => i.id === event.itemId).submitted = event.action === 'companySubmit';
+      next.version++; next.events.push(event.eventId);
+      return { state: next, code: 'UPDATED', changed: true };
+    }
+    if (state.companyItems.some(i => i.id === event.itemId)) return fail('COMPANY_ITEM');
+    const item = state.items.find(x => x.id === event.itemId);
+    if (!item) return fail('UNKNOWN_ITEM');
+    if (event.action !== 'applicable' && !item.applicable) return fail('NOT_APPLICABLE');
+    if (['approveNotApplicable', 'rejectNotApplicable', 'withdrawNotApplicable'].includes(event.action) && !item.notApplicableRequested) return fail('NO_PENDING_REQUEST');
+    if (state.version === Number.MAX_SAFE_INTEGER) return fail('VERSION_EXHAUSTED');
+    const next = copy(state), n = next.items.find(x => x.id === event.itemId);
+    if (event.action === 'report') n.reported = true;
+    if (event.action === 'unreport') n.reported = false;
+    if (event.action === 'verify') n.verified = true;
+    if (event.action === 'unverify') n.verified = false;
+    if (event.action === 'requestNotApplicable') n.notApplicableRequested = true;
+    if (['withdrawNotApplicable', 'rejectNotApplicable'].includes(event.action)) n.notApplicableRequested = false;
+    if (event.action === 'approveNotApplicable') { n.applicable = false; n.reported = false; n.verified = false; n.notApplicableRequested = false; }
+    if (event.action === 'applicable') n.applicable = true;
+    next.version++; next.events.push(event.eventId);
+    return { state: next, code: 'UPDATED', changed: true };
+  }
+  function status(item) {
+    if (!item.applicable) return '不適用（承辦已核定）';
+    if (item.verified) return '承辦已核對';
+    return item.reported ? '已提供（您自行標記）／專員尚未確認' : '尚待提供／專員尚未確認';
+  }
+  function progress(state) {
+    if (!validState(state)) throw Error('invalid state');
+    const initial = state.items.filter(i => i.applicable && byId.get(i.id).stage === 'initial');
+    return { total: initial.length, reported: initial.filter(i => i.reported).length, verified: initial.filter(i => i.verified).length, pending: initial.filter(i => !i.reported && !i.verified).length };
+  }
+  function postback(state, item, action) {
+    if (!validState(state) || !item || !state.items.some(i => i.id === item.id) || !actions.includes(action)) throw Error('invalid postback input');
+    const data = new URLSearchParams({ c: state.caseId, i: item.id, a: action, v: String(state.version) }).toString();
+    if (data.length > 300) throw Error('postback too long');
+    return data;
+  }
+  function parsePostback(data, eventId) {
+    if (typeof data !== 'string' || data.length > 300 || data.length === 0) throw Error('invalid postback');
+    const p = new URLSearchParams(data);
+    if ([...p.keys()].length !== 4 || ['c', 'i', 'a', 'v'].some(k => p.getAll(k).length !== 1) || !/^[1-9][0-9]*$/.test(p.get('v') || '')) throw Error('invalid postback');
+    const e = { caseId: p.get('c'), itemId: p.get('i'), action: p.get('a'), version: Number(p.get('v')), eventId };
+    if (!validEvent(e)) throw Error('invalid postback');
+    return e;
+  }
+  function flex(state) {
+    if (!validState(state)) throw Error('invalid state');
+    const pages = [], perPage = 4, pageCount = Math.ceil(state.items.length / perPage);
+    const text = (value, props = {}) => ({ type: 'text', text: value, wrap: true, ...props });
+    for (let offset = 0; offset < state.items.length; offset += perPage) {
+      const rows = state.items.slice(offset, offset + perPage).map(item => {
+        const d = byId.get(item.id), contents = [text(d.id + ' ' + d.title, { weight: 'bold', size: 'sm', color: d.color }), text(d.group + (d.stage === 'closing' ? ' · 後段通知，不算初次缺件' : d.stage === 'supplemental' ? ' · 補充選用' : ''), { size: 'xs', color: '#586E75' }), text(status(item), { size: 'sm' })];
+        if (item.notApplicableRequested) contents.push(text('已申請不適用／待承辦核定；仍列適用清單', { size: 'xs', color: '#72539C' }));
+        if (item.applicable) {
+          contents.push({ type: 'button', height: 'sm', action: { type: 'postback', label: item.reported ? '改為待提供' : '我已提供', data: postback(state, item, item.reported ? 'unreport' : 'report') } });
+          contents.push({ type: 'button', height: 'sm', action: { type: 'postback', label: item.notApplicableRequested ? '撤回不適用申請' : '申請不適用', data: postback(state, item, item.notApplicableRequested ? 'withdrawNotApplicable' : 'requestNotApplicable') } });
+        }
+        return { type: 'box', layout: 'vertical', margin: 'lg', contents };
+      });
+      const bubble = { type: 'bubble', body: { type: 'box', layout: 'vertical', contents: [text('房貸財力資料 · v' + state.version + ' · ' + (offset / perPage + 1) + '/' + pageCount, { weight: 'bold' }), ...rows, text('自報不等於承辦收件確認，實際依承辦銀行要求', { size: 'xs', margin: 'lg' })] } };
+      if (new TextEncoder().encode(JSON.stringify(bubble)).length > 30000) throw Error('bubble too long');
+      pages.push(bubble);
+    }
+    const message = { type: 'flex', altText: '房貸財力資料進度更新，請查看最新適用清單', contents: pages.length === 1 ? pages[0] : { type: 'carousel', contents: pages } };
+    if (pages.length > 12 || message.altText.length > 400 || new TextEncoder().encode(JSON.stringify(message.contents)).length > 50000) throw Error('message too long');
+    return message;
+  }
+  async function backend(state, event, verifyPrincipal) {
+    const denied = { state, changed: false, code: 'AUTH_REQUIRED' };
+    if (typeof verifyPrincipal !== 'function') return denied;
+    try { return transition(state, event, await verifyPrincipal(event)); } catch { return denied; }
+  }
+  const api = { catalog, customerCatalog, companyCatalog, sources, resolveItems, resolveCompanyItems, createState, validState, transition, status, progress, postback, parsePostback, flex, backend };
+  if (typeof module !== 'undefined') module.exports = api;
+  root.LoanCore = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+<script>
+'use strict';
+const C = LoanCore, $ = id => document.getElementById(id);
+const configs = {
+ salary: { purpose:'purchase', incomes:['salary'] }, cash: { purpose:'purchase', incomes:['cash'] },
+ self: { purpose:'refinance', incomes:['self'] },
+ self401: { purpose:'refinance', incomes:['self'], taxForm:'401', bankConfirmed:true },
+ self403: { purpose:'refinance', incomes:['self'], taxForm:'403', bankConfirmed:true },
+ self405: { purpose:'refinance', incomes:['self'], taxForm:'405', bankConfirmed:true },
+ professional: { purpose:'purchase', incomes:['professional'] }, retired: { purpose:'purchase', incomes:['retired'] },
+ rental: { purpose:'purchase', incomes:['rental'] }, mixed: { purpose:'purchase', incomes:['salary','rental'] },
+ assets: { purpose:'purchase', incomes:['salary'], assets:['S01'], bankConfirmed:true }
+};
+let current='salary', seq=0, busy=false, timer=null;
+const cases=new Map();
+function fresh(name){return C.createState('case_demo_'+name,'user_demo',name==='long'?C.customerCatalog.map(d=>d.id):C.resolveItems(configs[name]),C.resolveCompanyItems(name==='long'?'purchase':configs[name].purpose));}
+function ensure(name){if(!cases.has(name)){const s=fresh(name);cases.set(name,{state:s,history:[JSON.parse(JSON.stringify(s))],last:null});}return cases.get(name);}
+function model(){return ensure(current);}
+function principal(){return {authenticated:true,userId:$('role').value==='staff'?'staff_demo':'user_demo',role:$('role').value,caseIds:[model().state.caseId]};}
+function note(message){$('notice').textContent=message;}
+function record(code){const li=document.createElement('li');li.textContent=code+' · 本機示範版本 '+model().state.version;$('log').append(li);}
+function apply(event){const m=model(),result=C.transition(m.state,event,principal());if(result.changed){m.state=result.state;m.history.push(JSON.parse(JSON.stringify(result.state)));render();}const messages={UPDATED:'已更新離線示範，下方已出現新版進度卡；沒有寄送 LINE 訊息。',STALE_VERSION:'這是舊卡，未變更資料；請使用下方最新卡。',DUPLICATE_EVENT:'相同事件已處理，未重複變更。',STAFF_REQUIRED:'此狀態須承辦核定，客戶無權修改。',NOT_APPLICABLE:'承辦已核定不適用；如需恢復，請由承辦確認。',UNKNOWN_ITEM:'未知文件 ID 已拒絕，進度未變更。',NO_PENDING_REQUEST:'沒有待核定的不適用申請。',CASE_MISMATCH:'個案不符，進度未變更。'};note(messages[result.code]||result.code);record(result.code);return result;}
+function unlock(){busy=false;timer=null;for(const b of document.querySelectorAll('[data-action]'))b.disabled=false;}
+function act(item,action,version,caseId=model().state.caseId){if(busy){note('連點已攔截，請稍候；本次未再產生事件。');record('RAPID_CLICK_BLOCKED');return;}busy=true;const e={eventId:'event_'+(++seq),caseId,itemId:item.id,version,action};model().last=e;apply(e);for(const b of document.querySelectorAll('[data-action]'))b.disabled=true;timer=setTimeout(unlock,350);}
+function makeButton(parent,label,action,item,snapshot,kind){const b=document.createElement('button');b.type='button';b.textContent=label;b.className=kind||'';b.dataset.action=action;b.dataset.item=item.id;b.onclick=()=>act(item,action,snapshot.version,snapshot.caseId);parent.append(b);}
+function itemRow(item,snapshot){const d=C.catalog.find(d=>d.id===item.id),row=document.createElement('div');row.className='item';row.dataset.item=item.id;row.style.setProperty('--color',d.color);const group=document.createElement('small');group.textContent=d.group;const title=document.createElement('strong');title.textContent=d.id+' '+d.title;const info=document.createElement('small');info.textContent=d.note;const status=document.createElement('div');status.className='state';status.textContent=C.status(item);row.append(group);row.append(title);row.append(info);row.append(status);
+ if(item.verified){const own=document.createElement('small');own.textContent='您自行標記：'+(item.reported?'已提供':'待提供')+'；不影響承辦核對紀錄。';row.append(own);}
+ if(item.notApplicableRequested){const request=document.createElement('div');request.className='state request';request.textContent='已申請不適用／待承辦核定；仍列適用清單。';row.append(request);}
+ const buttons=document.createElement('div');buttons.className='buttons';
+ if($('role').value==='customer'&&item.applicable){makeButton(buttons,item.reported?'改為待提供':'我已提供',item.reported?'unreport':'report',item,snapshot,'primary');makeButton(buttons,item.notApplicableRequested?'撤回不適用申請':'申請不適用',item.notApplicableRequested?'withdrawNotApplicable':'requestNotApplicable',item,snapshot);}
+ if($('role').value==='staff'){if(item.applicable){makeButton(buttons,item.verified?'撤回示範核對':'示範承辦已核對',item.verified?'unverify':'verify',item,snapshot,'staff');if(item.notApplicableRequested){makeButton(buttons,'核定不適用','approveNotApplicable',item,snapshot,'staff');makeButton(buttons,'維持適用','rejectNotApplicable',item,snapshot,'staff');}}else makeButton(buttons,'恢復適用','applicable',item,snapshot,'staff');}
+ row.append(buttons);return row;}
+function card(snapshot,isLatest){const article=document.createElement('article');article.className='card'+(isLatest?'':' old');article.dataset.version=snapshot.version;if(isLatest)article.id='latest';const p=C.progress(snapshot),head=document.createElement('div');head.className='head';head.innerHTML='<h2>01 房貸財力資料清單</h2><div class="stamp">'+(isLatest?'最新卡':'舊卡，請使用最新版')+' · 版本 '+snapshot.version+'</div><div class="bar"><div class="fill" style="width:'+(p.total?p.verified/p.total*100:0)+'%"></div></div><div class="stamp">本次主要適用 '+p.total+' 項 · 您標記已提供 '+p.reported+' 項<br>承辦已核對 '+p.verified+' 項 · 尚待提供 '+p.pending+' 項<br>公司文件與按需補充資產不計主要完成率</div>';article.append(head);
+ for(const [stage,label] of [['initial','02 適用收入佐證／經確認個別補件'],['supplemental','03 按需補充資產 · 未選項目不要求提供'],['closing','04 後段通知 · 不算初次缺件']]){const stageItems=snapshot.items.filter(i=>C.catalog.find(d=>d.id===i.id).stage===stage);if(!stageItems.length)continue;const title=document.createElement('div');title.className='stage '+stage;title.textContent=label;article.append(title);const groups=[['承辦已核對',i=>i.applicable&&i.verified&&!i.notApplicableRequested],['已提供（您自行標記）',i=>i.applicable&&i.reported&&!i.verified&&!i.notApplicableRequested],['尚待提供',i=>i.applicable&&!i.reported&&!i.verified&&!i.notApplicableRequested],['不適用申請，待承辦核定',i=>i.applicable&&i.notApplicableRequested],['不適用（承辦已核定）',i=>!i.applicable]];for(const [name,filter] of groups){const list=stageItems.filter(filter);if(!list.length)continue;const section=document.createElement('section');section.className='section';const h=document.createElement('h3');h.textContent=name;section.append(h);for(const i of list)section.append(itemRow(i,snapshot));article.append(section);}}
+ if($('role').value==='staff'){const title=document.createElement('div');title.className='stage';title.textContent='05 公司承辦責任區 · 不計客戶待交／完成率';article.append(title);const section=document.createElement('section');section.className='section';for(const item of snapshot.companyItems){const d=C.companyCatalog.find(d=>d.id===item.id),row=document.createElement('div');row.className='item';row.dataset.company=item.id;row.style.setProperty('--color',d.color);const heading=document.createElement('strong');heading.textContent=d.id+' '+d.title;const info=document.createElement('small');info.textContent=d.note;const status=document.createElement('div');status.className='state';status.textContent=item.submitted?'示範紀錄：已標記送銀行（此頁未實際送件）':'公司負責提供／尚未確認實際送銀行';const buttons=document.createElement('div');buttons.className='buttons';makeButton(buttons,item.submitted?'撤回示範送件標記':'示範標記已送銀行',item.submitted?'companyUnsubmit':'companySubmit',item,snapshot,'staff');row.append(heading);row.append(info);row.append(status);row.append(buttons);section.append(row);}article.append(section);}
+ const footer=document.createElement('footer');footer.textContent='自報不等於承辦收件確認，實際依承辦銀行要求。月份、替代證明與每項適用性待銀行確認。';article.append(footer);return article;}
+function render(){const m=model();$('chat').replaceChildren();for(const snapshot of m.history)$('chat').append(card(snapshot,snapshot.version===m.state.version));$('json').textContent=JSON.stringify(C.flex(m.state),null,2);$('caseLabel').textContent='示範個案 '+m.state.caseId+(current==='long'?' · 長清單僅用於分頁測試，非客戶必備清單':' · 此配置仍須銀行確認');$('roleHint').textContent=$('role').value==='staff'?'承辦獨立示範視角，非正式登入；正式身份與權限驗證尚未串接。':'客戶只能修改自報或申請不適用；承辦收件確認獨立處理。';}
+$('duplicate').onclick=()=>model().last?apply(model().last):note('請先完成一次操作，再重播事件。');
+$('burst').onclick=()=>{const s=model().state,i=s.items.find(i=>i.applicable);if(!i)return;const action=$('role').value==='staff'?(i.verified?'unverify':'verify'):(i.reported?'unreport':'report');act(i,action,s.version);act(i,action,s.version);act(i,action,s.version);};
+$('unknown').onclick=()=>apply({eventId:'event_'+(++seq),caseId:model().state.caseId,itemId:'UNKNOWN',version:model().state.version,action:'report'});
+$('role').onchange=()=>{if(timer)clearTimeout(timer);unlock();render();note('已切換離線示範視角；此切換不是正式身份驗證。');};
+$('scenario').onchange=()=>{if(timer)clearTimeout(timer);unlock();current=$('scenario').value;ensure(current);render();note('已切換示範個案，各個案進度分開保存；沒有連線或寄送。');};
+$('reset').onclick=()=>{if(timer)clearTimeout(timer);unlock();cases.delete(current);ensure(current);$('log').replaceChildren();render();note('此個案離線進度已重設。');};
+render();
+</script></body></html>

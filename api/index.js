@@ -42,9 +42,12 @@ app.get(['/api', '/'], selectAccount, async (req, res) => {
     // Read-only packaging probe: render in memory, never send a LINE reply.
     const probe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '宏國服務體驗' } }, account.destination, { account: account.key });
     const welcomeProbe = await getPilotReply({ type: 'follow', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe' }, account.destination, { account: account.key });
+    // Render-only release evidence. No LINE send or customer/case state is read.
+    const formalProbe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '服務導覽' } }, account.destination, { account: account.key });
+    const documentsProbe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '備件清單' } }, account.destination, { account: account.key });
     const ready = probe?.route === 'home';
     const configReady = isAccountConfigReady(account.key);
-    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', welcomeContentRevision: welcomeContentRevision(), welcomeTextSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(welcomeProbe.messages[0].text).digest('hex') : null, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
+    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, nativeGuideVersion:'0.4.1', formalGuideReady:formalProbe?.route==='native:home', nativeDocumentsReady:documentsProbe?.route==='native:documents:choose', nativeGuideContentSha256:formalProbe?crypto.createHash('sha256').update(JSON.stringify(formalProbe.messages)).digest('hex'):null, documentReceiptTrusted:false, persistentCaseRecords:false, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', welcomeContentRevision: welcomeContentRevision(), welcomeTextSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(welcomeProbe.messages[0].text).digest('hex') : null, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
   }
   if (!account.legacy) {
     const ready = isAccountEnabled(account.key) && isAccountConfigReady(account.key);

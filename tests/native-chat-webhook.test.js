@@ -4,12 +4,13 @@ const crypto = require('node:crypto');
 const http = require('node:http');
 test('native guide uses the unchanged signed webhook with three-account isolation and mocked transports', async t => {
   const { SERVICE_ACCOUNTS } = require('../lib/service-accounts');
-  const { NATIVE_TEST_FLAGS } = require('../lib/native-guide-config');
+  const { NATIVE_TEST_FLAGS, NATIVE_PUBLIC_FLAGS } = require('../lib/native-guide-config');
   const env = { CHANNEL_SECRET: 'offline-default-secret', CHANNEL_ACCESS_TOKEN: 'offline-default-token', SUPABASE_URL: 'https://example.supabase.co', SUPABASE_KEY: 'offline-database-key', HG_SERVICE_PILOT_ENABLED: undefined };
   for (const account of Object.values(SERVICE_ACCOUNTS)) {
     env[account.secretEnv] ||= 'offline-secret-' + account.key;
     if (account.enabledEnv) env[account.enabledEnv] = 'true';
     env[NATIVE_TEST_FLAGS[account.key]] = 'true';
+    env[NATIVE_PUBLIC_FLAGS[account.key]] = undefined;
   }
   for (const [name, value] of Object.entries(env)) {
     const old = process.env[name];
@@ -64,7 +65,7 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
       assert.equal(await post(account), 200);
       assert.equal(replies.length, count + 1);
       assert.equal(replies.at(-1).account, account.key);
-      assert.ok(replies.at(-1).messages[0].altText.includes('測試服務導覽'));
+      assert.ok(replies.at(-1).messages[0].altText.includes('交易流程與貸款收入證明'));
       const validCount = replies.length;
       assert.ok(await post(account, {}, account.destination, 'wrong-secret') >= 400);
       assert.equal(await post(account, {}, 'wrong-destination'), account.legacy ? 200 : 403);
@@ -104,5 +105,23 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     }
     assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
     assert.deepEqual(db, []);
+  });
+  await t.test('formal service entry is opt-in while original OA keyword entries stay intact', async () => {
+    failReply=false;
+    for(const account of Object.values(SERVICE_ACCOUNTS)) {
+      const flag=NATIVE_PUBLIC_FLAGS[account.key],before=replies.length;
+      for(const text of ['服務導覽','交易流程','貸款收入證明'])await post(account,{message:{type:'text',text}});
+      assert.equal(replies.length,before);
+      process.env[flag]='true';
+      for(const text of ['服務導覽']){
+        assert.equal(await post(account,{message:{type:'text',text}}),200);
+        assert.equal(replies.at(-1).account,account.key);
+        assert.doesNotMatch(JSON.stringify(replies.at(-1).messages),/測試服務導覽|測試導覽/);
+      }
+      assert.equal(replies.length,before+1);
+      for(const text of ['交易流程','貸款收入證明'])await post(account,{message:{type:'text',text}});
+      assert.equal(replies.length,before+1);delete process.env[flag];
+    }
+    assert.deepEqual(db,[]);
   });
 });

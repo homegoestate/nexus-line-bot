@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PREFIX, ROUTES, TEXT_ACTIONS, PROCESS_SOURCE_STATUS, PROCESS_SOURCE, PROCESS_STEP_TITLES, buildNativeGuide, routeNativeGuide } from '../lib/native-chat-guide.mjs';
+import { PREFIX, ROUTES, TEXT_ACTIONS, LEGACY_TEXT_ACTIONS, LEGACY_PREFIX, PROCESS_SOURCE_STATUS, PROCESS_SOURCE, PROCESS_STEP_TITLES, buildNativeGuide, routeNativeGuide } from '../lib/native-chat-guide.mjs';
 import { routeEvent } from '../lib/flow-router.mjs';
 import dispatch from '../lib/pilot-dispatch.js';
 import config from '../lib/native-guide-config.js';
@@ -8,12 +8,13 @@ import accounts from '../lib/service-accounts.js';
 const event = { type: 'message', mode: 'active', source: { type: 'user', userId: 'synthetic-user' }, replyToken: 'synthetic-reply', message: { type: 'text', text: '測試服務導覽' } };
 function walk(value, fn) { if (!value || typeof value !== 'object') return; fn(value); for (const child of Object.values(value)) walk(child, fn); }
 function actions(value) { const out = []; walk(value, node => { if (node.type === 'postback' || node.type === 'message' || node.type === 'uri') out.push(node); }); return out; }
-test('new trigger and every text alternative stay in a separate exact namespace', () => {
+test('new trigger and every text alternative stay in a separate exact namespace', t => {
+  const flag=config.NATIVE_PUBLIC_FLAGS['604gpqef'],old=process.env[flag];process.env[flag]='true';t.after(()=>{if(old===undefined)delete process.env[flag];else process.env[flag]=old;});
   for (const [text, route] of Object.entries(TEXT_ACTIONS)) {
     assert.ok(text.length <= 32);
     assert.deepEqual(routeEvent({ ...event, message: { type: 'text', text } }), buildNativeGuide(route));
   }
-  for (const text of ['測試服務導覽 ', '測試導覽：unknown', '貸款', '買賣流程', '买方備件', '估價', '租金', '💰試算']) assert.equal(routeEvent({ ...event, message: { type: 'text', text } }), null);
+  for (const text of ['測試服務導覽 ', '測試導覽：unknown', '貸款', '買賣流程 ', '买方備件', '估價', '租金', '💰試算']) assert.equal(routeEvent({ ...event, message: { type: 'text', text } }), null);
 });
 test('every native route is reachable and offers functional back or overview', () => {
   const reached = new Set(['home']);
@@ -22,6 +23,7 @@ test('every native route is reachable and offers functional back or overview', (
     const route = queue.shift();
     const output = buildNativeGuide(route);
     for (const a of actions(output)) {
+      if(a.type==='message'){assert.ok(['查看買方交屋清單','查看賣方交屋清單'].includes(a.text));continue;}
       assert.equal(a.type, 'postback');
       assert.ok(a.data.startsWith(PREFIX));
       const next = a.data.slice(PREFIX.length);
@@ -33,7 +35,7 @@ test('every native route is reachable and offers functional back or overview', (
   assert.deepEqual([...reached].sort(), [...ROUTES].sort());
   for (let n = 1; n <= 8; n++) {
     const output = buildNativeGuide('step:' + n);
-    assert.ok(JSON.stringify(output).includes('常見問題'));
+    assert.ok(actions(output).some(a => a.data === PREFIX + 'detail:' + n));
     assert.ok(actions(output).some(a => a.data === PREFIX + (n === 1 ? 'process' : 'step:' + (n - 1))));
   }
 });
@@ -84,23 +86,23 @@ test('old cards, replay, rapid taps and different users yield fresh deterministi
   assert.ok(JSON.stringify(expected).includes('3–5'));
 });
 test('confirmed source and separate role/financial content stay explicit', () => {
-  assert.equal(PROCESS_SOURCE_STATUS, 'owner-confirmed-eight-steps-20261007');
-  assert.deepEqual(PROCESS_SOURCE, { libraryFileId: 'libfile_a8ce364601148191b533464f098b1ad7', version: 1, confirmedOn: '2026-10-07' });
+  assert.equal(PROCESS_SOURCE_STATUS, 'owner-confirmed-eight-stages-amended-20261008');
+  assert.deepEqual(PROCESS_SOURCE, { libraryFileId: 'libfile_a8ce364601148191b533464f098b1ad7', version: 1, confirmedOn: '2026-10-07', amendment: 'owner-instructions-and-official-research-20261008' });
   const process = JSON.stringify(buildNativeGuide('process'));
   assert.doesNotMatch(process, /原圖.*待核對|閱讀草稿/);
   assert.equal(buildNativeGuide('process').messages[0].contents.contents.length, 8);
   assert.ok(JSON.stringify(buildNativeGuide('buyer')).includes('由公司提供'));
   assert.ok(JSON.stringify(buildNativeGuide('buyer')).includes('移轉核身'));
-  assert.ok(JSON.stringify(buildNativeGuide('seller')).includes('賣方移轉資料獨立'));
+  assert.ok(JSON.stringify(buildNativeGuide('seller')).includes('不混入買方財力清單'));
   for (const route of ['finance:salary', 'finance:business', 'finance:pension', 'finance:rental']) {
     const s = JSON.stringify(buildNativeGuide(route));
-    assert.ok(s.includes('期間、文件格式與組合待承辦銀行確認'));
+    assert.ok(s.includes('期間、文件格式與組合依承貸銀行通知'));
     assert.ok(s.includes('自報不等於承辦收件確認'));
     assert.doesNotMatch(s, /近6|近六|一律六|必須提供配偶/);
   }
 });
 test('original eight names match the owner-confirmed source and navigation stays aligned', () => {
-  const expected = ['簽約', '用印', '核發稅單', '完稅', '過戶', '代償', '點交', '結案'];
+  const expected = ['簽約', '備證用印', '申報稅費與貸款', '完稅', '過戶', '代償', '塗銷', '交屋結案'];
   assert.deepEqual(PROCESS_STEP_TITLES, expected);
   const overview = buildNativeGuide('process').messages[0].contents.contents;
   for (let i = 0; i < expected.length; i++) {
@@ -108,12 +110,12 @@ test('original eight names match the owner-confirmed source and navigation stays
     assert.equal(overview[i].body.contents[1].text, title);
     const detail = buildNativeGuide('step:' + (i + 1));
     assert.equal(detail.messages[0].contents.body.contents[1].text, title);
-    const next = actions(detail).find(a => a.data === PREFIX + (i === 7 ? 'step:1' : 'step:' + (i + 2)));
+    const next = actions(detail).find(a => a.data === PREFIX + (i === 7 ? 'closing' : 'step:' + (i + 2)));
     assert.ok(next);
-    assert.equal(next.label, i === 7 ? '重新看簽約' : '下一步：' + expected[i + 1]);
+    assert.equal(next.label, i === 7 ? '查看交屋注意事項' : '下一步：' + expected[i + 1]);
   }
-  assert.ok(JSON.stringify(buildNativeGuide('step:3')).includes('稅務機關'));
-  assert.ok(JSON.stringify(buildNativeGuide('step:4')).includes('依稅單期限繳納'));
+  assert.ok(JSON.stringify(buildNativeGuide('detail:3')).includes('土地增值稅與契稅申報'));
+  assert.ok(JSON.stringify(buildNativeGuide('detail:4')).includes('稅單期限'));
 });
 test('every step gives distinct buyer and seller tasks without reporting actual completion', () => {
   for (let n = 1; n <= 8; n++) {
@@ -124,30 +126,23 @@ test('every step gives distinct buyer and seller tasks without reporting actual 
     assert.ok(buyer?.length > 10);
     assert.ok(seller?.length > 10);
     assert.notEqual(buyer.slice(3), seller.slice(3));
-    assert.ok(copy.includes('這是閱讀順序，實際辦理及並行安排由承辦確認。'));
+    assert.ok(copy.includes('流程說明不代表案件已送件或辦結；以本案契約、銀行及承辦通知為準。'));
     assert.doesNotMatch(JSON.stringify(detail), /你已完成|您已完成|已成功登錄|已成功過戶|https?:\/\//);
   }
-  assert.ok(JSON.stringify(buildNativeGuide('step:2')).includes('由公司提供；移轉核身獨立'));
-  assert.ok(JSON.stringify(buildNativeGuide('step:6')).includes('無舊貸可依個案略過代償'));
-  assert.ok(JSON.stringify(buildNativeGuide('step:6')).includes('時點可能與前面程序交錯，不是一律過戶後才做'));
+  assert.ok(JSON.stringify(buildNativeGuide('detail:2')).includes('由公司提供；移轉核身及用印'));
+  assert.ok(JSON.stringify(buildNativeGuide('detail:6')).includes('無原貸或不需代償'));
+  assert.ok(JSON.stringify(buildNativeGuide('detail:6')).includes('清償、塗銷時點與前階段可能交錯'));
 });
-test('transfer and repayment time is qualified consistently in overview and detail, not a statutory deadline', () => {
-  const overview = buildNativeGuide('process').messages[0].contents.contents;
-  for (const n of [5, 6]) {
-    for (const output of [overview[n - 1], buildNativeGuide('step:' + n)]) {
-      const copy = JSON.stringify(output);
-      assert.ok(copy.includes('預估 3–5 個工作天'));
-      assert.ok(copy.includes('文件齊備'));
-      assert.ok(copy.includes('機關'));
-      assert.ok(copy.includes('銀行'));
-      assert.ok(copy.includes('實際由承辦確認'));
-      assert.ok(copy.includes('非保證期限'));
-      walk(output, node => {
-        if (node.type === 'text') assert.doesNotMatch(node.text, /保證(?:在|於)?\s*3–5.*(?:完成|辦結)|法定(?:期限|工期)(?:為|是|：|:)?\s*3–5/);
-      });
-    }
+test('transfer and repayment have separate qualified 3–5 workday estimates; early inspection grants no occupancy or escrow release',()=>{
+  const overview=buildNativeGuide('process').messages[0].contents.contents;
+  for(const n of [5,6]){
+    for(const output of [overview[n-1],buildNativeGuide('step:'+n),buildNativeGuide('detail:'+n)])assert.ok(JSON.stringify(output).includes('3–5'));
+    const detail=JSON.stringify(buildNativeGuide('detail:'+n));for(const word of ['銀行','非保證期限','仲介','提前入住','施工','履保提前付款'])assert.ok(detail.includes(word),word);
+    walk(buildNativeGuide('detail:'+n),node=>{if(node.type==='text')assert.doesNotMatch(node.text,/保證(?:在|於)?\s*3–5.*(?:完成|辦結)|法定(?:期限|工期)(?:為|是|：|:)?\s*3–5/);});
   }
+  assert.ok(JSON.stringify(buildNativeGuide('step:6')).includes('另約 3–5'));
 });
+
 test('three server opt-ins fail closed and cannot be enabled by event or another account', async t => {
   for (const [key, flag] of Object.entries(config.NATIVE_TEST_FLAGS)) {
     const previous = process.env[flag];
@@ -161,13 +156,32 @@ test('three server opt-ins fail closed and cannot be enabled by event or another
     if (pilotFlag) { process.env[pilotFlag] = 'true'; t.after(() => { if (previous === undefined) delete process.env[pilotFlag]; else process.env[pilotFlag] = previous; }); }
     assert.equal(await dispatch.getPilotReply({ ...event, enabled: true }, account.destination, { account: key }), null);
     const ownFlag = config.NATIVE_TEST_FLAGS[key];
+    const publicFlag=config.NATIVE_PUBLIC_FLAGS[key],publicOld=process.env[publicFlag];delete process.env[publicFlag];t.after(()=>{if(publicOld===undefined)delete process.env[publicFlag];else process.env[publicFlag]=publicOld;});
     for (const bad of ['TRUE', '1', 'false', '']) { process.env[ownFlag] = bad; assert.equal(await dispatch.getPilotReply(event, account.destination, { account: key }), null); }
     process.env[ownFlag] = 'true';
     assert.deepEqual(await dispatch.getPilotReply(event, account.destination, { account: key }), buildNativeGuide('home'));
+    const publicEvent={...event,message:{type:'text',text:'交易流程'},publicEnabled:true};
+    for(const bad of [undefined,'TRUE','1','false','']){if(bad===undefined)delete process.env[publicFlag];else process.env[publicFlag]=bad;assert.equal(await dispatch.getPilotReply(publicEvent,account.destination,{account:key}),null);}
+    process.env[publicFlag]='true';
     for (const text of Object.keys(TEXT_ACTIONS)) assert.ok(await dispatch.getPilotReply({ ...event, message: { type: 'text', text } }, account.destination, { account: key }));
     assert.equal(await dispatch.getPilotReply(event, 'wrong-destination', { account: key }), null);
     assert.equal(await dispatch.getPilotReply({ ...event, source: { type: 'group' } }, account.destination, { account: key }), null);
     for (const other of Object.keys(config.NATIVE_TEST_FLAGS).filter(x => x !== key)) assert.equal(config.isNativeTestEnabled(other), false);
-    delete process.env[ownFlag];
+    delete process.env[ownFlag];delete process.env[publicFlag];
   }
+});
+
+test('legacy aliases and old closing cards preserve their meaning; new step seven is mortgage removal',()=>{
+  for(const [text,route]of Object.entries(LEGACY_TEXT_ACTIONS))assert.deepEqual(routeNativeGuide({...event,message:{type:'text',text}},'@604gpqef'),buildNativeGuide(route));
+  for(let n=1;n<=8;n++)assert.deepEqual(routeNativeGuide({...event,type:'postback',postback:{data:LEGACY_PREFIX+'step:'+n}},'@604gpqef'),buildNativeGuide('step:'+(n>=7?8:n)));
+  assert.deepEqual(routeNativeGuide({...event,type:'postback',postback:{data:PREFIX+'step:7'}},'@604gpqef'),buildNativeGuide('step:7'));
+});
+test('all customer-facing native output uses formal names and compact main cards',()=>{
+  for(const route of ROUTES)assert.doesNotMatch(JSON.stringify(buildNativeGuide(route)),/測試服務導覽|測試導覽|備件勾選測試|備件測試快照/);
+  for(let n=1;n<=8;n++){const texts=[];walk(buildNativeGuide('step:'+n),node=>{if(node.type==='text')texts.push(node.text);});assert.ok(texts.filter(x=>!x.startsWith('宏國')).every(x=>x.length<=70));}
+});
+test('income proof menu has four short categories plus other/mixed with no universal six-month demand',()=>{
+  for(const label of ['受薪','自營／接案','退休','租金','其他／混合'])assert.ok(actions(buildNativeGuide('finance')).some(a=>a.label===label));
+  for(const route of ['finance:salary','finance:business','finance:pension','finance:rental','finance:other'])assert.ok(actions(buildNativeGuide(route)).some(a=>a.data===PREFIX+'finance:conditions'));
+  assert.match(JSON.stringify(buildNativeGuide('finance:business')),/401／403／405.*不是人人全交/);assert.match(JSON.stringify(buildNativeGuide('finance:pension')),/一次領取與每月給付不同/);assert.match(JSON.stringify(buildNativeGuide('finance:other')),/來源與金流需對應/);
 });

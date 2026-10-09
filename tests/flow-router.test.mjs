@@ -178,7 +178,7 @@ test('owner prepare preserves exact formal URI and warning on the registration c
   assert.equal(links[0].uri, 'https://script.google.com/macros/s/AKfycbwne31PhZ2AxkDpIbTsq4Al9kexafx7LbZEM9mBXlutDo7ls5G4hG95SkQN-E4oB6G0/exec?view=register&oa=604gpqef');
   assert.equal(links[0].uri, OWNER_REGISTER_URI);
   assert.equal(new URL(links[0].uri).searchParams.get('oa'), '604gpqef');
-  assert.ok(visibleText(checklist).includes('「前往正式登錄」會開啟既有正式登錄表單。請勿輸入虛構測試資料；僅體驗導覽時可返回首頁。'));
+  assert.ok(visibleText(checklist).includes('「前往正式登錄」會開啟既有正式登錄表單。請勿輸入虛構或示範資料；僅閱讀導覽時可返回首頁。'));
   assert.equal(actions(summary, 'message')[0].label, '請代書協助下一步');
 });
 
@@ -214,7 +214,7 @@ test('back navigation preserves each stage and every non-home state can return h
   for (const output of allOutputs()) {
     if (output.state.flow === 'home') continue;
     const navigation = output.messages[0].quickReply.items.map(item => item.action);
-    const home = navigation.find(action => action.label === '返回體驗首頁');
+    const home = navigation.find(action => action.label === '返回服務主選單');
     assert.equal(routeEvent(postEvent(home.data)).route, 'home');
     const back = navigation.find(action => action.label === '回上一題');
     if (output.state.step === 'stage') {
@@ -311,7 +311,7 @@ test('all 70 states meet local LINE Flex limits, three-action cap and summary pr
         assert.ok(Buffer.byteLength(serialized(card)) <= 30 * 1024);
         assert.equal(card.size, 'mega');
         assert.equal(card.styles.header.backgroundColor, '#172E4A');
-        assert.equal(card.header.contents[0].color, '#A9894C');
+        assert.equal(card.header.contents[0].color, '#FFFFFF');
         let actionCount = 0;
         walk(card, node => {
           if (node.type === 'box') {
