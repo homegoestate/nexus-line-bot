@@ -12,7 +12,7 @@ test('new trigger and every text alternative stay in a separate exact namespace'
   const flag=config.NATIVE_PUBLIC_FLAGS['604gpqef'],old=process.env[flag];process.env[flag]='true';t.after(()=>{if(old===undefined)delete process.env[flag];else process.env[flag]=old;});
   for (const [text, route] of Object.entries(TEXT_ACTIONS)) {
     assert.ok(text.length <= 32);
-    assert.deepEqual(routeEvent({ ...event, message: { type: 'text', text } }), buildNativeGuide(route));
+    assert.deepEqual(routeEvent({ ...event, message: { type: 'text', text } }), buildNativeGuide(route,{account:'@604gpqef'}));
   }
   for (const text of ['測試服務導覽 ', '測試導覽：unknown', '貸款', '買賣流程 ', '买方備件', '估價', '租金', '💰試算']) assert.equal(routeEvent({ ...event, message: { type: 'text', text } }), null);
 });
@@ -23,7 +23,7 @@ test('every native route is reachable and offers functional back or overview', (
     const route = queue.shift();
     const output = buildNativeGuide(route);
     for (const a of actions(output)) {
-      if(a.type==='message'){assert.ok(['查看買方交屋清單','查看賣方交屋清單'].includes(a.text));continue;}
+      if(a.type==='message'){assert.ok(['簽約文件－自然人','簽約文件－公司法人','新青安','預約諮詢'].includes(a.text));continue;}
       assert.equal(a.type, 'postback');
       assert.ok(a.data.startsWith(PREFIX));
       const next = a.data.slice(PREFIX.length);
@@ -97,7 +97,7 @@ test('confirmed source and separate role/financial content stay explicit', () =>
   for (const route of ['finance:salary', 'finance:business', 'finance:pension', 'finance:rental']) {
     const s = JSON.stringify(buildNativeGuide(route));
     assert.ok(s.includes('期間、文件格式與組合依承貸銀行通知'));
-    assert.ok(s.includes('自報不等於承辦收件確認'));
+    assert.ok(s.includes('交付與需求請直接向承辦確認'));
     assert.doesNotMatch(s, /近6|近六|一律六|必須提供配偶/);
   }
 });
@@ -109,8 +109,9 @@ test('original eight names match the owner-confirmed source and navigation stays
     const title = String(i + 1).padStart(2, '0') + ' ' + expected[i];
     assert.equal(overview[i].body.contents[1].text, title);
     const detail = buildNativeGuide('step:' + (i + 1));
-    assert.equal(detail.messages[0].contents.body.contents[1].text, title);
-    const next = actions(detail).find(a => a.data === PREFIX + (i === 7 ? 'closing' : 'step:' + (i + 2)));
+    const cards=detail.messages[0].contents.type==='carousel'?detail.messages[0].contents.contents:[detail.messages[0].contents];
+    for(const card of cards)assert.ok(card.body.contents[1].text.startsWith(title));
+    const next = actions(detail).find(a => a.data === PREFIX + (i === 7 ? 'closing' : (i===1?'buyer:step:3':'step:' + (i + 2))));
     assert.ok(next);
     assert.equal(next.label, i === 7 ? '查看交屋注意事項' : '下一步：' + expected[i + 1]);
   }

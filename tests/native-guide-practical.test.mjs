@@ -47,8 +47,8 @@ test('repayment delegates authorized handling to company and bank while clients 
   assert.doesNotMatch(copy,/不見可當場變更|所有銀行.*變更|保證.*現場變更|提供銀行窗口銜接/);
 });
 
-test('income branches lead to separate signing conditions and retain unverified self-report status',()=>{
-  for(const route of ['finance:salary','finance:business','finance:pension','finance:rental','finance:other'])assert.ok(text(route).includes('自報不等於承辦收件確認'));
+test('income branches lead to signing conditions and handler confirmation without worksheet entry',()=>{
+  for(const route of ['finance:salary','finance:business','finance:pension','finance:rental','finance:other'])assert.ok(text(route).includes('交付與需求請直接向承辦確認'));
   const copy=text('finance:conditions');for(const expected of ['核貸金額','利率','年限','寬限期','提前清償違約金','撥款條件與日期','先向承辦確認再簽','公司送件與對保當日核身分開','依銀行正式通知配合','貸款不足或延遲仍依契約'])assert.ok(copy.includes(expected),expected);
 });
 
@@ -58,8 +58,8 @@ test('all captured legacy keywords still pass through and every new action remai
   }
   for (const route of ROUTES) {
     const output = buildNativeGuide(route);
-    assert.doesNotMatch(JSON.stringify(output), /https?:\/\/|06-2582589|文賢路|預約諮詢|目前案件已送入/);
-    const visit = node => { if (!node || typeof node !== 'object') return; if (node.type === 'postback') assert.ok(node.data.startsWith(PREFIX)); for (const child of Object.values(node)) visit(child); };
+    assert.doesNotMatch(JSON.stringify(output), /https?:\/\/|06-2582589|文賢路|目前案件已送入/);
+    const visit = node => { if (!node || typeof node !== 'object') return; if (node.type === 'postback') assert.ok(node.data.startsWith(PREFIX)); if(node.type==='message')assert.ok(['簽約文件－自然人','簽約文件－公司法人','新青安','預約諮詢'].includes(node.text)); for (const child of Object.values(node)) visit(child); };
     visit(output);
   }
 });

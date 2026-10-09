@@ -7,7 +7,7 @@ const event={type:'message',mode:'active',source:{type:'user'},message:{type:'te
 
 test('verified general closing reminders contain real content and use only native postbacks with no message self-loop',()=>{
   assert.equal(CLOSING_SOURCE.responseId,'81524093');assert.equal(CLOSING_SOURCE.keyword,'交屋');assert.equal(CLOSING_SOURCE.roleSpecificChecklistsVerified,false);
-  for(const route of ROUTES)walk(buildNativeGuide(route),node=>{if(node.type==='button'||node.type==='action')assert.equal(node.action.type,'postback');assert.notEqual(node.type,'message');});
+  for(const route of ROUTES.filter(r=>r.startsWith("closing")))walk(buildNativeGuide(route),node=>{if(node.type==='button'||node.type==='action')assert.equal(node.action.type,'postback');assert.notEqual(node.type,'message');});
   const copy=JSON.stringify(buildNativeGuide('closing:inspection'))+JSON.stringify(buildNativeGuide('closing:warranty'));
   for(const text of ['水電瓦斯是否正常','設備是否可使用','管理費是否分算','鑰匙、磁扣、遙控器是否交接','保固範圍是哪些地方','保固期間多久','修繕費用由誰負擔'])assert.ok(copy.includes(text),text);
   assert.doesNotMatch(copy,/請開啟原有|既有入口|尚未接線|原清單|已圓滿完成|已於稍早正式匯出|買方交屋清單|賣方交屋清單/);

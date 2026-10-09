@@ -7,8 +7,8 @@ import { PREFIX, buildNativeGuide } from '../lib/native-chat-guide.mjs';
 import { encodeSnapshot, initialSnapshot, parseSnapshot, summarizeSnapshot } from '../lib/native-document-guide.mjs';
 const event = {type:'message',mode:'active',replyToken:'offline-only',source:{type:'user'},message:{type:'text',text:'服務導覽'}};
 function actions(value) { const out=[]; function walk(x) { if(!x||typeof x!=='object')return; if(['postback','message'].includes(x.type)&&x.label)out.push(x); Object.values(x).forEach(walk); } walk(value); return out; }
-function enable(t,account) { for(const key of [account.enabledEnv,config.NATIVE_TEST_FLAGS[account.key],config.NATIVE_PUBLIC_FLAGS[account.key],config.NATIVE_DOCUMENT_FLAGS[account.key]].filter(Boolean)) { const old=process.env[key]; process.env[key]='true'; t.after(()=>{if(old===undefined)delete process.env[key];else process.env[key]=old;}); } }
-test('formal private-chat journey reaches role stages, income snapshots and the existing consultation keyword on three OAs', async t=>{
+function enable(t,account) { for(const key of [account.enabledEnv,config.NATIVE_TEST_FLAGS[account.key],config.NATIVE_PUBLIC_FLAGS[account.key],config.NATIVE_DOCUMENT_FLAGS[account.key]].filter(Boolean)) { const old=process.env[key]; process.env[key]=key===config.NATIVE_DOCUMENT_FLAGS[account.key]?'false':'true'; t.after(()=>{if(old===undefined)delete process.env[key];else process.env[key]=old;}); } }
+test('formal private-chat journey reaches role stages, simple income and original document/contact keywords on three OAs', async t=>{
   for(const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     enable(t,account);
     const route=e=>dispatch.getPilotReply(e,account.destination,{account:account.key});
@@ -19,16 +19,15 @@ test('formal private-chat journey reaches role stages, income snapshots and the 
     assert.equal(stages.messages[0].contents.contents.length,8);
     const finance=await click(actions(buyer).find(a=>a.label==='貸款收入證明').data);
     const salary=await click(actions(finance).find(a=>a.label==='受薪').data);
-    const docsAction=actions(salary).find(a=>a.data?.startsWith(PREFIX+'docs:')); assert.ok(docsAction);
-    const docs=await click(docsAction.data); assert.match(docs.route,/native:documents:/);
-    let state=parseSnapshot(encodeSnapshot(initialSnapshot('salary'),'choose','in',5)).snapshot;
-    state=parseSnapshot(encodeSnapshot(state,'list','report',0)).snapshot;
-    const summary=await click(encodeSnapshot(state,'summary'));
-    const count=summarizeSnapshot(state); assert.equal(count.reported,1); assert.equal(count.pending,1); assert.equal(count.total,2); assert.equal(count.verified,0);
-    assert.equal(count.companyItems.length,3); assert.equal(count.caseSubmitted,false);
-    const handoff=actions(summary).find(a=>a.label==='請承辦協助'); assert.deepEqual(handoff,{type:'message',label:'請承辦協助',text:'預約諮詢'});
-    assert.match(JSON.stringify(summary),/承辦尚未核實/);
+    assert.match(JSON.stringify(salary),/交付與需求請直接向承辦確認/);
+    assert.ok(actions(salary).every(a=>!a.data?.startsWith(PREFIX+'docs:')));
+    const handoff=actions(salary).find(a=>a.label==='請承辦協助'); assert.deepEqual(handoff,{type:'message',label:'請承辦協助',text:'預約諮詢'});
     assert.equal(await route({...event,message:{type:'text',text:handoff.text}}),null);
+    const contracts=await click(actions(buyer).find(a=>a.label==='簽約應備文件').data);
+    for(const keyword of ['簽約文件－自然人','簽約文件－公司法人']){
+      assert.ok(actions(contracts).some(a=>a.text===keyword));
+      assert.equal(await route({...event,message:{type:'text',text:keyword}}),null);
+    }
   }
 });
 test('buyer and seller eight-stage cards keep their own responsibilities and do not establish case progress',()=>{
@@ -44,7 +43,7 @@ test('formal additions preserve legacy OA keywords and private-chat account boun
   for(const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     enable(t,account); const route=e=>dispatch.getPilotReply(e,account.destination,{account:account.key});
     for(const text of ['交易流程','買賣流程','買方備件','賣方備件','貸款收入證明','預約諮詢','過戶','結案','出款','撥款']) assert.equal(await route({...event,message:{type:'text',text}}),null,text);
-    assert.equal((await route({...event,message:{type:'text',text:'備件清單'}})).route,'native:documents:choose');
+    assert.equal((await route({...event,message:{type:'text',text:'備件清單'}})).route,'native:finance');
     assert.equal(await route({...event,source:{type:'group'}}),null);
     assert.equal(await route({...event,mode:'standby'}),null);
     assert.equal(await dispatch.getPilotReply(event,'wrong-destination',{account:account.key}),null);

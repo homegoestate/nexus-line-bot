@@ -96,7 +96,7 @@ test('old cards and rapid taps are explicitly independent snapshots; no persiste
   assert.notEqual(routeDocumentGuide(event).messages[0].altText, 'mutated');
   assert.equal(summarizeSnapshot(initialSnapshot('salary')).reported, 0);
 });
-test('new flags fail closed per account and preserve exact old guide while disabled', async t => {
+test('retired flags show simple finance per account while archived snapshots remain explicitly gated', async t => {
   for (const [key, flag] of Object.entries(config.NATIVE_DOCUMENT_FLAGS)) {
     const previous = process.env[flag]; delete process.env[flag];
     t.after(() => { if (previous === undefined) delete process.env[flag]; else process.env[flag] = previous; });
@@ -104,8 +104,8 @@ test('new flags fail closed per account and preserve exact old guide while disab
     t.after(() => { if (publicOld === undefined) delete process.env[publicFlag]; else process.env[publicFlag] = publicOld; });
     const oldEvent = { ...base, message: { type: 'text', text: '測試服務導覽' } };
     assert.deepEqual(routeNativeGuide(oldEvent, '@' + key), buildNativeGuide('home'));
-    assert.equal(routeNativeGuide(base, '@' + key), null);
-    for (const bad of ['TRUE', '1', 'false', '']) { process.env[flag] = bad; assert.equal(routeNativeGuide(base, '@' + key), null); }
+    assert.deepEqual(routeNativeGuide(base, '@' + key), buildNativeGuide('finance'));
+    for (const bad of ['TRUE', '1', 'false', '']) { process.env[flag] = bad; assert.deepEqual(routeNativeGuide(base, '@' + key), buildNativeGuide('finance')); }
     process.env[flag] = 'true';
     assert.equal(routeNativeGuide(base, '@' + key).route, 'native:documents:choose');
     const account = accounts.getServiceAccount(key), nativeFlag = config.NATIVE_TEST_FLAGS[key], pilotFlag = account.enabledEnv;
@@ -115,10 +115,10 @@ test('new flags fail closed per account and preserve exact old guide while disab
     assert.equal((await dispatch.getPilotReply(base, account.destination, { account: key })).route, 'native:documents:choose');
     assert.equal(await dispatch.getPilotReply(base, 'wrong-destination', { account: key }), null);
     const entry = routeNativeGuide(oldEvent, '@' + key);
-    assert.ok(actions(entry).some(a => a.data.startsWith(DOCUMENT_PREFIX)));
+    assert.ok(actions(entry).every(a => !a.data.startsWith(DOCUMENT_PREFIX)));
     const finance = routeNativeGuide({ ...oldEvent, type: 'postback', postback: { data: config.NATIVE_TEST_PREFIX + 'finance:business' } }, '@' + key);
-    const seeded = actions(finance).find(a => a.data.startsWith(DOCUMENT_PREFIX));
-    assert.equal(parseSnapshot(seeded.data).snapshot.incomes, 4);
+    assert.ok(actions(finance).every(a=>!a.data.startsWith(DOCUMENT_PREFIX)));
+    assert.match(JSON.stringify(finance),/交付與需求請直接向承辦確認/);
     for (const other of Object.keys(config.NATIVE_DOCUMENT_FLAGS).filter(x => x !== key)) assert.equal(config.isNativeDocumentEnabled(other), false);
     delete process.env[flag];
   }

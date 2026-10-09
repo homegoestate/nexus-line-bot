@@ -1,4 +1,5 @@
 import test from 'node:test';
+import theme from '../lib/brand-theme.js';
 import assert from 'node:assert/strict';
 import { routeEvent, buildWelcomeReply, PILOT_PREFIX, MAX_POSTBACK_LENGTH, OWNER_REGISTER_URI, TEXT_TRIGGERS } from '../lib/flow-router.mjs';
 
@@ -310,7 +311,7 @@ test('all 70 states meet local LINE Flex limits, three-action cap and summary pr
         assert.equal(card.type, 'bubble');
         assert.ok(Buffer.byteLength(serialized(card)) <= 30 * 1024);
         assert.equal(card.size, 'mega');
-        assert.equal(card.styles.header.backgroundColor, '#172E4A');
+        assert.equal(card.styles.header.backgroundColor, theme.primary);
         assert.equal(card.header.contents[0].color, '#FFFFFF');
         let actionCount = 0;
         walk(card, node => {
