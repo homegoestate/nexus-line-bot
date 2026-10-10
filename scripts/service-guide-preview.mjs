@@ -48,6 +48,7 @@ const hashes = Object.fromEntries(accounts.map(account => [account, {
   welcomeMenuSha256: crypto.createHash('sha256').update(JSON.stringify(data[account].welcome.messages[1])).digest('hex'),
   nativeGuideContentSha256: crypto.createHash('sha256').update(JSON.stringify(data[account]['native:home'].messages)).digest('hex'),
   officialServiceContentSha256: crypto.createHash('sha256').update(JSON.stringify(data[account]['native:services'].messages)).digest('hex'),
+  processOverviewContentSha256: crypto.createHash('sha256').update(JSON.stringify(data[account]['native:process'].messages)).digest('hex'),
 }]));
 fs.writeFileSync(path.join(output, 'expected-hashes.json'), JSON.stringify(hashes, null, 2) + '\n');
 const serialized = JSON.stringify(data).replace(/</g, '\\u003c');

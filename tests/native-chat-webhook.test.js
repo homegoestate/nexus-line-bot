@@ -121,16 +121,43 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
       assert.equal(await post(account, { type: 'postback', postback: { data: 'hgchat:v2:services' } }), 200);
       assert.equal(replies.length, before + 1);
       const cards = replies.at(-1).messages[0].contents.contents;
-      const texts = cards.flatMap(card => card.footer.contents.map(button => button.action.text));
-      assert.deepEqual(texts, EXISTING_SERVICE_KEYWORDS[account.account]);
+      const actions = cards.flatMap(card => card.footer.contents.map(button => button.action));
+      assert.deepEqual(actions.map(action => action.label), ['買賣過戶', '貸款規劃', '收支比試算', '法人簽約', '自然人簽約', '加入社群']);
+      assert.equal(actions[0].data, 'hgchat:v2:process');
+      const texts = actions.filter(action => action.type === 'message').map(action => action.text);
+      assert.deepEqual(texts, [2, 4, 3, 1, 5].map(index => EXISTING_SERVICE_KEYWORDS[account.account][index]));
       before = replies.length;
-      for (const text of [...texts, '官方', '官方服務', '簽約文件－自然人', '簽約文件－公司法人', '貸款應備', '新青安', '服務導覽：不存在'])
+      for (const text of [...texts, '買賣', '交易流程', '交易流程總覽', '官方', '官方服務', '簽約文件－自然人', '簽約文件－公司法人', '貸款應備', '新青安', '服務導覽：不存在'])
         assert.equal(await post(account, { message: { type: 'text', text } }), 200);
       assert.equal(replies.length, before, 'native keywords must not cause a second webhook reply');
       for (const text of ['服務導覽：官方服務', '服務導覽：官方六項服務']) {
         before = replies.length;
         assert.equal(await post(account, { message: { type: 'text', text } }), 200);
         assert.equal(replies.length, before + 1);
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+  });
+  await t.test('service A uses existing signed eight-stage routes on each OA without a native keyword takeover', async () => {
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      let expected;
+      for (const changed of [
+        { type: 'postback', postback: { data: 'hgchat:v2:process' } },
+        { message: { type: 'text', text: '服務導覽：交易流程' } },
+      ]) {
+        for (let n = 0; n < 2; n++) {
+          const before = replies.length;
+          assert.equal(await post(account, { ...changed, deliveryContext: { isRedelivery: true } }), 200);
+          assert.equal(replies.length, before + 1);
+          const reply = replies.at(-1);
+          assert.equal(reply.account, account.key);
+          assert.equal(reply.messages.length, 1);
+          assert.equal(reply.messages[0].contents.contents.length, 8);
+          if (expected) assert.deepEqual(reply.messages, expected);
+          expected = reply.messages;
+        }
       }
       delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
     }

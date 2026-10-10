@@ -5,7 +5,7 @@ import accounts from '../lib/service-accounts.js';
 import config from '../lib/native-guide-config.js';
 import theme from '../lib/brand-theme.js';
 import { buildWelcomeReply, routeEvent, PILOT_PREFIX, OWNER_REGISTER_URI } from '../lib/flow-router.mjs';
-import { buildNativeGuide, PREFIX, LEGACY_PREFIX, EXISTING_SERVICE_KEYWORDS } from '../lib/native-chat-guide.mjs';
+import { buildNativeGuide, PREFIX, LEGACY_PREFIX, EXISTING_SERVICE_KEYWORDS, PROCESS_STEP_TITLES } from '../lib/native-chat-guide.mjs';
 
 const event = { type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'offline-only', message: { type: 'text', text: '服務導覽' } };
 const expectedKeywords = {
@@ -55,23 +55,45 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     assert.doesNotMatch(JSON.stringify(welcome.messages), /測試服務導覽|測試導覽/);
   });
 
-  test(`${account.account}: six native actions exactly match verified OA keywords and never trigger a webhook reply`, async t => {
+  test(`${account.account}: reordered A–F labels send only B–F to the exact verified native OA keywords`, async t => {
     enable(t, account);
     const result = await click(account, PREFIX + 'services');
     assert.equal(result.route, 'native:services');
     assert.deepEqual(EXISTING_SERVICE_KEYWORDS[account.account], expectedKeywords[account.account]);
+    const ordered = result.messages[0].contents.contents.flatMap(card => card.footer.contents.map(button => button.action));
+    assert.deepEqual(ordered.map(a => a.label), ['買賣過戶', '貸款規劃', '收支比試算', '法人簽約', '自然人簽約', '加入社群']);
+    assert.deepEqual(ordered[0], { type: 'postback', label: '買賣過戶', data: PREFIX + 'process', displayText: '查看買賣過戶' });
     const buttons = actions(result, 'message');
-    assert.deepEqual(buttons.map(a => a.text), expectedKeywords[account.account]);
-    assert.equal(buttons.length, 6);
-    assert.equal(buttons[2].label, expectedKeywords[account.account][2]);
-    assert.equal(buttons[5].label, '申請加入 VIP 社群');
+    assert.deepEqual(buttons.map(a => a.text), [2, 4, 3, 1, 5].map(index => expectedKeywords[account.account][index]));
+    assert.equal(buttons.length, 5);
+    assert.match(JSON.stringify(result.messages), /查看交易流程總覽/);
     for (const button of buttons) {
       assert.equal(await send(account, { message: { type: 'text', text: button.text } }), null);
       assert.equal(routeEvent({ ...event, message: { type: 'text', text: button.text } }, { account: account.account }), null);
     }
-    for (const text of ['官方', '官方服務', '貸款應備', '新青安', '簽約文件－自然人', '簽約文件－公司法人'])
+    for (const text of ['官方', '官方服務', '買賣', '交易流程', '貸款應備', '新青安', '簽約文件－自然人', '簽約文件－公司法人'])
       assert.equal(await send(account, { message: { type: 'text', text } }), null, text);
     assert.doesNotMatch(JSON.stringify(result.messages), /3000|3,000|5000|5,000|10000|10,000|6000|6,000|免費估價|https?:\/\//);
+  });
+
+  test(`${account.account}: service A and the existing backend text entry open all eight stages directly`, async t => {
+    enable(t, account);
+    const services = await click(account, PREFIX + 'services');
+    const actionA = services.messages[0].contents.contents[0].footer.contents[0].action;
+    const overview = await click(account, actionA.data);
+    assert.equal(overview.route, 'native:process');
+    assert.deepEqual(overview, await send(account, { message: { type: 'text', text: '服務導覽：交易流程' } }));
+    const cards = overview.messages[0].contents.contents;
+    assert.equal(cards.length, 8);
+    assert.deepEqual(cards.map(card => card.body.contents[1].text), PROCESS_STEP_TITLES.map((title, index) => `${String(index + 1).padStart(2, '0')} ${title}`));
+    for (let n = 1; n <= 8; n++) {
+      const step = cards[n - 1].footer.contents[0].action;
+      assert.equal(step.data, PREFIX + 'step:' + n);
+      assert.equal((await click(account, step.data)).route, 'native:step:' + n);
+    }
+    assert.doesNotMatch(JSON.stringify(overview.messages), /https?:\/\/|影片|影片連結/);
+    for (const text of ['交易流程總覽', '服務導覽：交易流程 ', '買賣過戶', '貸款規劃', '收支比試算', '法人簽約', '自然人簽約', '加入社群'])
+      assert.equal(await send(account, { message: { type: 'text', text } }), null, text);
   });
 
   test(`${account.account}: reserved aliases and both menus connect without claiming original official entry`, async t => {
@@ -123,6 +145,8 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     for (const changes of [
       { type: 'follow' }, { type: 'postback', postback: { data: PREFIX + 'home' } },
       { type: 'postback', postback: { data: PREFIX + 'services' } },
+      { type: 'postback', postback: { data: PREFIX + 'process' } },
+      { type: 'message', message: { type: 'text', text: '服務導覽：交易流程' } },
     ]) {
       const original = await send(account, changes);
       const repeated = await Promise.all(Array.from({ length: 20 }, () => send(account, {
