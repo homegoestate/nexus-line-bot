@@ -163,6 +163,56 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     }
     assert.deepEqual(db, []);
   });
+  for (const sourceType of ['user', 'group', 'room']) {
+    await t.test(`${sourceType}: three signed OA routes reply once to public A and its step callbacks using only the original reply transport`, async () => {
+      failReply = false;
+      for (const account of Object.values(SERVICE_ACCOUNTS)) {
+        process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+        const source = { type: sourceType, userId: 'private-user', groupId: 'private-group', roomId: 'private-room' };
+        let overview;
+        for (const changed of [
+          { message: { type: 'text', text: '服務導覽：交易流程' } },
+          { type: 'postback', postback: { data: 'hgchat:v2:process' } },
+        ]) {
+          const before = replies.length;
+          assert.equal(await post(account, { ...changed, source }), 200);
+          assert.equal(replies.length, before + 1);
+          const reply = replies.at(-1);
+          assert.equal(reply.account, account.key);
+          assert.equal(reply.messages.length, 1);
+          assert.equal(reply.messages[0].contents.contents.length, 8);
+          assert.doesNotMatch(JSON.stringify(reply.messages), /private-user|private-group|private-room/);
+          if (overview) assert.deepEqual(reply.messages, overview);
+          overview = reply.messages;
+        }
+        for (const n of [1, 8]) {
+          const before = replies.length;
+          assert.equal(await post(account, { type: 'postback', source, postback: { data: 'hgchat:v2:step:' + n } }), 200);
+          assert.equal(replies.length, before + 1);
+        }
+        if (sourceType !== 'user') {
+          const docConfig = require('../lib/native-guide-config');
+          const docFlag = docConfig.NATIVE_DOCUMENT_FLAGS[account.key], oldDoc = process.env[docFlag];
+          process.env[docFlag] = 'true';
+          const before = replies.length;
+          for (const text of ['備件清單', '宏國服務體驗', '測試服務導覽', '官方', '官方服務', '查銀行案件', '權限管理', '群發', '退群', '服務導覽：私人案件'])
+            assert.equal(await post(account, { source, message: { type: 'text', text } }), 200);
+          for (const data of ['hgpilot:v1:owner', 'hgchat:v2:docs:choose', 'hgchat-test:v1:process', 'hgchat:v2:unknown'])
+            assert.equal(await post(account, { source, type: 'postback', postback: { data } }), 200);
+          for (const type of ['follow', 'join', 'leave']) assert.equal(await post(account, { source, type }), 200);
+          assert.equal(replies.length, before);
+          if (oldDoc === undefined) delete process.env[docFlag]; else process.env[docFlag] = oldDoc;
+        }
+        const before = replies.length;
+        assert.ok(await post(account, { source }, account.destination, 'wrong-secret') >= 400);
+        assert.equal(await post(account, { source }, 'wrong-destination'), account.legacy ? 200 : 403);
+        assert.equal(replies.length, before);
+        delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+      }
+      assert.deepEqual(db, []);
+      assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
+    });
+  }
   await t.test('each repeated welcome or new callback has one transport attempt and no recursive reply', async () => {
     failReply = false;
     for (const account of Object.values(SERVICE_ACCOUNTS)) {

@@ -132,7 +132,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     for (const text of ['服務導覽 ', '服務導覽：不存在', '官方服務 ', '買賣', '公司簽約', '交易流程', '我有問題'])
       assert.equal(await send(account, { message: { type: 'text', text } }), null, text);
     for (const changes of [
-      { source: { type: 'group' } }, { source: { type: 'room' } }, { mode: 'standby' },
+      { source: { type: 'unknown' } }, { source: {} }, { mode: 'standby' },
       { replyToken: '' }, { replyToken: 'x'.repeat(257) }, { type: 'message', message: { type: 'image' } },
     ]) assert.equal(await send(account, changes), null);
     assert.equal(await dispatch.getPilotReply(event, 'wrong-destination', { account: account.key }), null);

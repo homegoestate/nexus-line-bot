@@ -39,12 +39,16 @@ test('buyer and seller eight-stage cards keep their own responsibilities and do 
     assert.match(text,/不代表案件已送件或辦結/);
   }
 });
-test('formal additions preserve legacy OA keywords and private-chat account boundaries', async t=>{
+test('formal additions preserve legacy OA keywords and keep snapshots private while public shared guides work', async t=>{
   for(const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     enable(t,account); const route=e=>dispatch.getPilotReply(e,account.destination,{account:account.key});
     for(const text of ['交易流程','買賣流程','買方備件','賣方備件','貸款收入證明','預約諮詢','過戶','結案','出款','撥款']) assert.equal(await route({...event,message:{type:'text',text}}),null,text);
     assert.equal((await route({...event,message:{type:'text',text:'備件清單'}})).route,'native:finance');
-    assert.equal(await route({...event,source:{type:'group'}}),null);
+    for (const type of ['group', 'room']) {
+      assert.equal((await route({...event,source:{type}})).route,'native:home');
+      assert.equal(await route({...event,source:{type},message:{type:'text',text:'備件清單'}}),null);
+      assert.equal(await route({...event,source:{type},type:'postback',postback:{data:'hgpilot:v1:owner'}}),null);
+    }
     assert.equal(await route({...event,mode:'standby'}),null);
     assert.equal(await dispatch.getPilotReply(event,'wrong-destination',{account:account.key}),null);
   }

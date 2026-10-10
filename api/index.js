@@ -47,9 +47,14 @@ app.get(['/api', '/'], selectAccount, async (req, res) => {
     const documentsProbe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '備件清單' } }, account.destination, { account: account.key });
     const servicesProbe = await getPilotReply({ type: 'postback', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', postback: { data: 'hgchat:v2:services' } }, account.destination, { account: account.key });
     const processProbe = await getPilotReply({ type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '服務導覽：交易流程' } }, account.destination, { account: account.key });
+    const publicGuideContexts = {};
+    for (const type of ['user', 'group', 'room']) {
+      const contextProbe = type === 'user' ? processProbe : await getPilotReply({ type: 'message', mode: 'active', source: { type }, replyToken: 'read-only-health-probe', message: { type: 'text', text: '服務導覽：交易流程' } }, account.destination, { account: account.key });
+      publicGuideContexts[type] = { ready: contextProbe?.route === 'native:process', stages: contextProbe?.messages[0]?.contents?.contents?.length ?? 0, contentSha256: contextProbe?.route === 'native:process' ? crypto.createHash('sha256').update(JSON.stringify(contextProbe.messages)).digest('hex') : null };
+    }
     const ready = probe?.route === 'home';
     const configReady = isAccountConfigReady(account.key);
-    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, nativeGuideVersion:'0.4.4', processOverviewReady:processProbe?.route==='native:process', processOverviewStages:processProbe?.messages[0]?.contents?.contents?.length ?? 0, processOverviewContentSha256:processProbe?.route==='native:process'?crypto.createHash('sha256').update(JSON.stringify(processProbe.messages)).digest('hex'):null, formalGuideReady:formalProbe?.route==='native:home', nativeDocumentsReady:documentsProbe?.route==='native:documents:choose', nativeDocumentsRetired:!require('../lib/native-guide-config').isNativeDocumentEnabled(account.key), nativeGuideContentSha256:formalProbe?crypto.createHash('sha256').update(JSON.stringify(formalProbe.messages)).digest('hex'):null, documentReceiptTrusted:false, persistentCaseRecords:false, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', welcomeContentRevision: welcomeContentRevision(), welcomeMenuSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(JSON.stringify(welcomeProbe.messages[1])).digest('hex') : null, officialServiceContentSha256: servicesProbe?.route === 'native:services' ? crypto.createHash('sha256').update(JSON.stringify(servicesProbe.messages)).digest('hex') : null, welcomeTextSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(welcomeProbe.messages[0].text).digest('hex') : null, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
+    return res.status(ready && (account.legacy || configReady) ? 200 : 503).json({ version: PILOT_VERSION, nativeGuideVersion:'0.4.5', publicGuideContexts, processOverviewReady:processProbe?.route==='native:process', processOverviewStages:processProbe?.messages[0]?.contents?.contents?.length ?? 0, processOverviewContentSha256:processProbe?.route==='native:process'?crypto.createHash('sha256').update(JSON.stringify(processProbe.messages)).digest('hex'):null, formalGuideReady:formalProbe?.route==='native:home', nativeDocumentsReady:documentsProbe?.route==='native:documents:choose', nativeDocumentsRetired:!require('../lib/native-guide-config').isNativeDocumentEnabled(account.key), nativeGuideContentSha256:formalProbe?crypto.createHash('sha256').update(JSON.stringify(formalProbe.messages)).digest('hex'):null, documentReceiptTrusted:false, persistentCaseRecords:false, account: account.account, routerReady: ready, welcomeReady: welcomeProbe?.route === 'welcome', welcomeContentRevision: welcomeContentRevision(), welcomeMenuSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(JSON.stringify(welcomeProbe.messages[1])).digest('hex') : null, officialServiceContentSha256: servicesProbe?.route === 'native:services' ? crypto.createHash('sha256').update(JSON.stringify(servicesProbe.messages)).digest('hex') : null, welcomeTextSha256: welcomeProbe?.route === 'welcome' ? crypto.createHash('sha256').update(welcomeProbe.messages[0].text).digest('hex') : null, flows: ['buy', 'sell', 'loan', 'inherit', 'land', 'owner'], ...(account.legacy ? {} : { configReady }) });
   }
   if (!account.legacy) {
     const ready = isAccountEnabled(account.key) && isAccountConfigReady(account.key);
@@ -145,7 +150,7 @@ async function handleServiceEvent(event, destination, account) {
   }
   const result = await serviceClients.get(account.key).replyMessage(event.replyToken, pilotReply.messages);
   console.info(JSON.stringify({ type: 'service_pilot_render', version: PILOT_VERSION, account: account.account,
-    flow: pilotReply.state?.flow || 'unavailable', step: pilotReply.state?.step || 'unavailable' }));
+    sourceType: event.source.type, flow: pilotReply.state?.flow || 'unavailable', step: pilotReply.state?.step || 'unavailable' }));
   return result;
 }
 
@@ -359,10 +364,12 @@ async function resolveDictionaryKeyword(keyword) {
 async function handleEvent(event, destination) {
   const pilotReply = await getPilotReply(event, destination);
   if (pilotReply) {
-    // Reply only to the initiating customer. Never push, broadcast or write case records.
+    // Reply only to the initiating chat; shared chats receive public guide only.
+    // Never push, broadcast or write case records.
     const result = await client.replyMessage(event.replyToken, pilotReply.messages);
     // Fixed UI categories only. Event counts are NOT distinct people, leads or revenue.
     console.info(JSON.stringify({ type: 'service_pilot_render', version: PILOT_VERSION,
+      account: '@604gpqef', sourceType: event.source.type,
       flow: pilotReply.state?.flow || 'unavailable', step: pilotReply.state?.step || 'unavailable' }));
     return result;
   }
