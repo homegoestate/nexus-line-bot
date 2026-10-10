@@ -23,7 +23,7 @@ test('every native route is reachable and offers functional back or overview', (
     const route = queue.shift();
     const output = buildNativeGuide(route);
     for (const a of actions(output)) {
-      if(a.type==='message'){assert.ok(['簽約文件－自然人','簽約文件－公司法人','新青安','預約諮詢'].includes(a.text));continue;}
+      if(a.type==='message'){assert.ok(['簽約文件－自然人','簽約文件－公司法人','新青安','預約諮詢','宏國服務體驗','買賣','簽約','貸款規定','公司簽約','收支比','申請加入 宏國地政 | 易丞地政 VIP社群'].includes(a.text));continue;}
       assert.equal(a.type, 'postback');
       assert.ok(a.data.startsWith(PREFIX));
       const next = a.data.slice(PREFIX.length);

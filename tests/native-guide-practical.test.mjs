@@ -59,7 +59,7 @@ test('all captured legacy keywords still pass through and every new action remai
   for (const route of ROUTES) {
     const output = buildNativeGuide(route);
     assert.doesNotMatch(JSON.stringify(output), /https?:\/\/|06-2582589|文賢路|目前案件已送入/);
-    const visit = node => { if (!node || typeof node !== 'object') return; if (node.type === 'postback') assert.ok(node.data.startsWith(PREFIX)); if(node.type==='message')assert.ok(['簽約文件－自然人','簽約文件－公司法人','新青安','預約諮詢'].includes(node.text)); for (const child of Object.values(node)) visit(child); };
+    const visit = node => { if (!node || typeof node !== 'object') return; if (node.type === 'postback') assert.ok(node.data.startsWith(PREFIX)); if(node.type==='message')assert.ok(['簽約文件－自然人','簽約文件－公司法人','新青安','預約諮詢','宏國服務體驗','買賣','簽約','貸款規定','公司簽約','收支比','申請加入 宏國地政 | 易丞地政 VIP社群'].includes(node.text)); for (const child of Object.values(node)) visit(child); };
     visit(output);
   }
 });

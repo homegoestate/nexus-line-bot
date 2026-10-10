@@ -106,6 +106,56 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
     assert.deepEqual(db, []);
   });
+  await t.test('integrated welcome and six native services make one signed webhook reply then hand off original text actions', async () => {
+    failReply = false;
+    const { EXISTING_SERVICE_KEYWORDS } = await import('../lib/native-chat-guide.mjs');
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      let before = replies.length;
+      assert.equal(await post(account, { type: 'follow' }), 200);
+      assert.equal(replies.length, before + 1);
+      assert.equal(replies.at(-1).messages.length, 2);
+      const firstCard = replies.at(-1).messages[1].contents.contents[0];
+      assert.equal(firstCard.body.contents[0].text, '服務導覽');
+      before = replies.length;
+      assert.equal(await post(account, { type: 'postback', postback: { data: 'hgchat:v2:services' } }), 200);
+      assert.equal(replies.length, before + 1);
+      const cards = replies.at(-1).messages[0].contents.contents;
+      const texts = cards.flatMap(card => card.footer.contents.map(button => button.action.text));
+      assert.deepEqual(texts, EXISTING_SERVICE_KEYWORDS[account.account]);
+      before = replies.length;
+      for (const text of [...texts, '官方', '官方服務', '簽約文件－自然人', '簽約文件－公司法人', '貸款應備', '新青安', '服務導覽：不存在'])
+        assert.equal(await post(account, { message: { type: 'text', text } }), 200);
+      assert.equal(replies.length, before, 'native keywords must not cause a second webhook reply');
+      for (const text of ['服務導覽：官方服務', '服務導覽：官方六項服務']) {
+        before = replies.length;
+        assert.equal(await post(account, { message: { type: 'text', text } }), 200);
+        assert.equal(replies.length, before + 1);
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+  });
+  await t.test('each repeated welcome or new callback has one transport attempt and no recursive reply', async () => {
+    failReply = false;
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      for (const changed of [{ type: 'follow' }, { type: 'postback', postback: { data: 'hgchat:v2:home' } }, { type: 'postback', postback: { data: 'hgchat:v2:services' } }]) {
+        let expected;
+        for (let n = 0; n < 2; n++) {
+          const before = replies.length;
+          assert.equal(await post(account, { ...changed, deliveryContext: { isRedelivery: true } }), 200);
+          assert.equal(replies.length, before + 1);
+          const output = replies.at(-1);
+          assert.equal(output.account, account.key);
+          if (expected) assert.deepEqual(output.messages, expected);
+          expected = output.messages;
+        }
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+  });
   await t.test('formal service entry is opt-in while original OA keyword entries stay intact', async () => {
     failReply=false;
     for(const account of Object.values(SERVICE_ACCOUNTS)) {
