@@ -91,7 +91,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
       assert.equal(step.data, PREFIX + 'step:' + n);
       assert.equal((await click(account, step.data)).route, 'native:step:' + n);
     }
-    assert.doesNotMatch(JSON.stringify(overview.messages), /https?:\/\/|影片|影片連結/);
+    assert.doesNotMatch(JSON.stringify(overview.messages), /https?:\/\/|"type":"(?:video|uri)"/);
     for (const text of ['交易流程總覽', '服務導覽：交易流程 ', '買賣過戶', '貸款規劃', '收支比試算', '法人簽約', '自然人簽約', '加入社群'])
       assert.equal(await send(account, { message: { type: 'text', text } }), null, text);
   });

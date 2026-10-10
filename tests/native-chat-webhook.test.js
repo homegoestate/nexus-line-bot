@@ -213,6 +213,24 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
       assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
     });
   }
+  await t.test('public overview media button hands off to the old native receiver without a second webhook reply on every OA and source', async () => {
+    failReply = false;
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      for (const type of ['user', 'group', 'room']) {
+        const source = { type }, before = replies.length;
+        assert.equal(await post(account, { source, message: { type: 'text', text: '服務導覽：交易流程' } }), 200);
+        assert.equal(replies.length, before + 1);
+        const message = replies.at(-1).messages[0];
+        assert.equal(message.contents.contents.length, 8);
+        assert.deepEqual(message.quickReply.items.map(item => item.action).filter(action => action.type === 'message'), [{ type: 'message', label: '原買賣影片／說明', text: '買賣' }]);
+        assert.equal(await post(account, { source, message: { type: 'text', text: '買賣' } }), 200);
+        assert.equal(replies.length, before + 1, 'existing native content remains the only owner of 買賣');
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+  });
   await t.test('each repeated welcome or new callback has one transport attempt and no recursive reply', async () => {
     failReply = false;
     for (const account of Object.values(SERVICE_ACCOUNTS)) {
