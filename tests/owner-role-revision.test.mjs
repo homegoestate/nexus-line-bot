@@ -57,7 +57,7 @@ test('all customer cards omit worksheet actions and retired old cards return inc
 });
 test('original document and loan keywords are exact pass-through actions with qualified current loan summary',t=>{
   assert.deepEqual(EXISTING_CONTENT_KEYWORDS,{natural:'簽約文件－自然人',company:'簽約文件－公司法人',qingan:'新青安'});
-  assert.deepEqual(EXISTING_LOAN_KEYWORDS,{'@604gpqef':'貸款應備','@528scwxf':'新青安','@375umdzq':'新青安'});
+  assert.deepEqual(EXISTING_LOAN_KEYWORDS,{'@604gpqef':'新青安','@528scwxf':'新青安','@375umdzq':'新青安'});
   for(const [r,keywords] of [['documents:contract',['簽約文件－自然人','簽約文件－公司法人']],['finance:options',['新青安']]]){
     const actions=[];walk(buildNativeGuide(r),n=>{if(n.type==='message')actions.push(n.text);});
     for(const keyword of keywords)assert.ok(actions.includes(keyword));

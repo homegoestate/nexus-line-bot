@@ -164,6 +164,33 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     assert.deepEqual(db, []);
     assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
   });
+  await t.test('loan options send the exact native 新青安 keyword on all three signed OA routes without a second webhook reply', async () => {
+    failReply = false;
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      for (const changed of [
+        { message: { type: 'text', text: '服務導覽：貸款選項' } },
+        { type: 'postback', postback: { data: 'hgchat:v2:finance:options' } },
+      ]) {
+        const before = replies.length;
+        assert.equal(await post(account, changed), 200);
+        assert.equal(replies.length, before + 1);
+        assert.equal(replies.at(-1).account, account.key);
+        const messages = replies.at(-1).messages;
+        assert.equal(messages.length, 1);
+        const card = messages[0].contents;
+        assert.equal(card.body.contents[1].text, '新青安3.0與貸款說明');
+        const actions = card.footer.contents.map(button => button.action);
+        assert.deepEqual(actions[0], { type: 'message', label: '新青安3.0', text: '新青安' });
+        assert.deepEqual(actions[1], { type: 'message', label: '請承辦協助', text: '預約諮詢' });
+        assert.equal(await post(account, { message: { type: 'text', text: actions[0].text } }), 200);
+        assert.equal(replies.length, before + 1, 'native 新青安 remains the sole keyword receiver');
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+    assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
+  });
   await t.test('service A uses existing signed eight-stage routes on each OA without a native keyword takeover', async () => {
     for (const account of Object.values(SERVICE_ACCOUNTS)) {
       process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
