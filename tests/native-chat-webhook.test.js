@@ -139,6 +139,31 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     }
     assert.deepEqual(db, []);
   });
+  await t.test('additive candidate A replies once with entrance then the exact eight-stage message for all three OAs and chat contexts', async () => {
+    const { buildNativeGuide } = await import('../lib/native-chat-guide.mjs');
+    const { buildTransactionEntryCandidate, CANDIDATE_ENTRY_TEXTS, CANDIDATE_ENTRY_PREFIX } = await import('../lib/service-entry-candidate.mjs');
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      const expected = buildTransactionEntryCandidate({ account: account.account }).messages;
+      for (const sourceType of ['user', 'group', 'room']) {
+        for (const changed of [
+          { message: { type: 'text', text: CANDIDATE_ENTRY_TEXTS.buy } },
+          { type: 'postback', postback: { data: CANDIDATE_ENTRY_PREFIX + 'buy' } },
+        ]) {
+          const before = replies.length;
+          assert.equal(await post(account, { ...changed, source: { type: sourceType } }), 200);
+          assert.equal(replies.length, before + 1, 'one existing reply call; no second reply or push');
+          assert.equal(replies.at(-1).account, account.key);
+          assert.deepEqual(replies.at(-1).messages, expected);
+          assert.equal(replies.at(-1).messages.length, 2);
+          assert.deepEqual(replies.at(-1).messages[1], buildNativeGuide('process', { account: account.account }).messages[0]);
+        }
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+    assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
+  });
   await t.test('service A uses existing signed eight-stage routes on each OA without a native keyword takeover', async () => {
     for (const account of Object.values(SERVICE_ACCOUNTS)) {
       process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
