@@ -1,7 +1,9 @@
 import test from 'node:test';
 import theme from '../lib/brand-theme.js';
 import assert from 'node:assert/strict';
-import { routeEvent, buildWelcomeReply, PILOT_PREFIX, MAX_POSTBACK_LENGTH, OWNER_REGISTER_URI, TEXT_TRIGGERS } from '../lib/flow-router.mjs';
+import { routeEvent as liveRouteEvent, buildWelcomeReply as liveBuildWelcomeReply, PILOT_PREFIX, MAX_POSTBACK_LENGTH, OWNER_REGISTER_URI, TEXT_TRIGGERS } from '../lib/flow-router.mjs';
+import { originalPayload } from './helpers/video-quick-replies.mjs';
+const routeEvent = originalPayload(liveRouteEvent), buildWelcomeReply = originalPayload(liveBuildWelcomeReply);
 
 const textEvent = text => ({ type: 'message', message: { type: 'text', text } });
 const postEvent = data => ({ type: 'postback', postback: { data } });

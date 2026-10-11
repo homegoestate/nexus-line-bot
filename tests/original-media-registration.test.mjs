@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import dispatch from '../lib/pilot-dispatch.js';
+import liveDispatch from '../lib/pilot-dispatch.js';
+import { originalPayload } from './helpers/video-quick-replies.mjs';
+const dispatch = { getPilotReply: originalPayload(liveDispatch.getPilotReply) };
 import accounts from '../lib/service-accounts.js';
 import config from '../lib/native-guide-config.js';
 import { PREFIX, PROCESS_STEP_TITLES } from '../lib/native-chat-guide.mjs';

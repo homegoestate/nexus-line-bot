@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildNativeGuide, routeNativeGuide, ROUTES, PREFIX } from '../lib/native-chat-guide.mjs';
-import { routeEvent } from '../lib/flow-router.mjs';
+import { buildNativeGuide as liveBuildNativeGuide, routeNativeGuide as liveRouteNativeGuide, ROUTES, PREFIX } from '../lib/native-chat-guide.mjs';
+import { routeEvent as liveRouteEvent } from '../lib/flow-router.mjs';
+import { originalPayload } from './helpers/video-quick-replies.mjs';
+const buildNativeGuide = originalPayload(liveBuildNativeGuide), routeNativeGuide = originalPayload(liveRouteNativeGuide), routeEvent = originalPayload(liveRouteEvent);
 const text = route => JSON.stringify(buildNativeGuide(route));
 const keywords = ["13","不動產交易流程","交易流程","交易程序","契稅","完稅","對保","對保帶什麼資料","對保應備文件","對保文件","對保要帶什麼","履約保證","已送件","影片","應備文件","文件","查進度","案件流程","案件進度","產權登記","用印","用印應備文件","登記進度","稅費","簽約","簽約應備文件","簽約文件－自然人","缺件","補件","買房費用","買賣","買賣應備文件","買賣流程","買賣程序","辦理塗銷","送件","進度查詢","過戶","過戶應備文件"];
 

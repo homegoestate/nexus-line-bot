@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildNativeGuide, routeNativeGuide, ROUTES, PREFIX, CLOSING_SOURCE } from '../lib/native-chat-guide.mjs';
+import { buildNativeGuide as liveBuildNativeGuide, routeNativeGuide as liveRouteNativeGuide, ROUTES, PREFIX, CLOSING_SOURCE } from '../lib/native-chat-guide.mjs';
+import { originalPayload } from './helpers/video-quick-replies.mjs';
+const buildNativeGuide = originalPayload(liveBuildNativeGuide), routeNativeGuide = originalPayload(liveRouteNativeGuide);
 import config from '../lib/native-guide-config.js';
 const walk=(node,fn)=>{if(!node||typeof node!=='object')return;fn(node);Object.values(node).forEach(child=>walk(child,fn));};
 const event={type:'message',mode:'active',source:{type:'user'},message:{type:'text',text:''}};

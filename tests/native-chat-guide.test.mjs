@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PREFIX, ROUTES, TEXT_ACTIONS, LEGACY_TEXT_ACTIONS, LEGACY_PREFIX, PROCESS_SOURCE_STATUS, PROCESS_SOURCE, PROCESS_STEP_TITLES, buildNativeGuide, routeNativeGuide } from '../lib/native-chat-guide.mjs';
-import { routeEvent } from '../lib/flow-router.mjs';
-import dispatch from '../lib/pilot-dispatch.js';
+import { PREFIX, ROUTES, TEXT_ACTIONS, LEGACY_TEXT_ACTIONS, LEGACY_PREFIX, PROCESS_SOURCE_STATUS, PROCESS_SOURCE, PROCESS_STEP_TITLES, buildNativeGuide as liveBuildNativeGuide, routeNativeGuide as liveRouteNativeGuide } from '../lib/native-chat-guide.mjs';
+import { routeEvent as liveRouteEvent } from '../lib/flow-router.mjs';
+import liveDispatch from '../lib/pilot-dispatch.js';
+import { originalPayload } from './helpers/video-quick-replies.mjs';
+const buildNativeGuide = originalPayload(liveBuildNativeGuide), routeNativeGuide = originalPayload(liveRouteNativeGuide), routeEvent = originalPayload(liveRouteEvent);
+const dispatch = { getPilotReply: originalPayload(liveDispatch.getPilotReply) };
 import config from '../lib/native-guide-config.js';
 import accounts from '../lib/service-accounts.js';
 const event = { type: 'message', mode: 'active', source: { type: 'user', userId: 'synthetic-user' }, replyToken: 'synthetic-reply', message: { type: 'text', text: '測試服務導覽' } };

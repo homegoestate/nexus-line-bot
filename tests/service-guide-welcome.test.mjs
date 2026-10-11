@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import dispatch from '../lib/pilot-dispatch.js';
+import liveDispatch from '../lib/pilot-dispatch.js';
 import accounts from '../lib/service-accounts.js';
 import config from '../lib/native-guide-config.js';
 import theme from '../lib/brand-theme.js';
-import { buildWelcomeReply, routeEvent, PILOT_PREFIX, OWNER_REGISTER_URI } from '../lib/flow-router.mjs';
-import { buildNativeGuide, PREFIX, LEGACY_PREFIX, EXISTING_SERVICE_KEYWORDS, PROCESS_STEP_TITLES } from '../lib/native-chat-guide.mjs';
+import { buildWelcomeReply as liveBuildWelcomeReply, routeEvent as liveRouteEvent, PILOT_PREFIX, OWNER_REGISTER_URI } from '../lib/flow-router.mjs';
+import { buildNativeGuide as liveBuildNativeGuide, PREFIX, LEGACY_PREFIX, EXISTING_SERVICE_KEYWORDS, PROCESS_STEP_TITLES } from '../lib/native-chat-guide.mjs';
+import { originalPayload } from './helpers/video-quick-replies.mjs';
+const buildWelcomeReply = originalPayload(liveBuildWelcomeReply), routeEvent = originalPayload(liveRouteEvent), buildNativeGuide = originalPayload(liveBuildNativeGuide);
+const dispatch = { getPilotReply: originalPayload(liveDispatch.getPilotReply) };
 
 const event = { type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'offline-only', message: { type: 'text', text: '服務導覽' } };
 const expectedKeywords = {

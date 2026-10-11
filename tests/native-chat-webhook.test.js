@@ -191,6 +191,32 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     assert.deepEqual(db, []);
     assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
   });
+  await t.test('video navigation on all three signed OA routes remains one reply while native aliases receive zero webhook replies', async () => {
+    failReply = false;
+    const { VIDEO_PLAYLISTS, VIDEO_NATIVE_ALIASES } = await import('../lib/video-playlists.mjs');
+    for (const account of Object.values(SERVICE_ACCOUNTS)) {
+      process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
+      for (const type of ['user', 'group', 'room']) {
+        const source = { type };
+        for (let repeat = 0; repeat < 2; repeat++) {
+          const before = replies.length;
+          assert.equal(await post(account, { source, message: { type: 'text', text: '服務導覽：貸款選項' }, deliveryContext: { isRedelivery: true } }), 200);
+          assert.equal(replies.length, before + 1);
+          const message = replies.at(-1).messages[0];
+          assert.equal(message.contents.footer.contents[0].action.text, '新青安');
+          assert.deepEqual(message.quickReply.items.at(-1).action, { type: 'uri', ...VIDEO_PLAYLISTS.loan });
+          for (const text of VIDEO_NATIVE_ALIASES) assert.equal(await post(account, { source, message: { type: 'text', text } }), 200);
+          assert.equal(replies.length, before + 1, 'native rules alone own the video aliases');
+        }
+        const before = replies.length;
+        assert.equal(await post(account, { source, message: { type: 'text', text: '服務導覽' } }), 200);
+        assert.equal(replies.length, before + 1);
+      }
+      delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];
+    }
+    assert.deepEqual(db, []);
+    assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
+  });
   await t.test('service A uses existing signed eight-stage routes on each OA without a native keyword takeover', async () => {
     for (const account of Object.values(SERVICE_ACCOUNTS)) {
       process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
