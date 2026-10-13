@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import accounts from '../lib/service-accounts.js';
 import config from '../lib/native-guide-config.js';
 import dispatch from '../lib/pilot-dispatch.js';
@@ -30,6 +31,15 @@ test('image payload plans one HTTPS JPEG for original and preview with no crop o
   assert.equal(TRANSACTION_PROCESS_IMAGE.sha256, '05302c9b976f6cb253e5d2587f380dfbded63d0b010e7efd083b533aea885136');
   assert.ok(TRANSACTION_PROCESS_IMAGE.byteLength < 1024 * 1024, 'one unmodified JPEG fits the preview size limit');
   assert.equal(TRANSACTION_PROCESS_IMAGE.width / TRANSACTION_PROCESS_IMAGE.height, 1.5);
+});
+
+test('public asset contains exactly the approved corrected JPEG bytes', () => {
+  const bytes = fs.readFileSync(new URL('../' + TRANSACTION_PROCESS_IMAGE.assetPath, import.meta.url));
+  assert.equal(bytes.length, 776323);
+  assert.equal(bytes.readUInt16BE(0), 0xffd8);
+  assert.equal(bytes.readUInt16BE(bytes.length - 2), 0xffd9);
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), '05302c9b976f6cb253e5d2587f380dfbded63d0b010e7efd083b533aea885136');
+  assert.equal(crypto.createHash('sha1').update(Buffer.concat([Buffer.from('blob ' + bytes.length + '\0'), bytes])).digest('hex'), 'bc6fd66f4bc23221550cbbd1b565308846cf6b82');
 });
 
 for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
