@@ -5,6 +5,7 @@ import { buildServiceEntryPreview, buildTransactionEntryCandidate, routeServiceE
 import dispatch from '../lib/pilot-dispatch.js';
 import accounts from '../lib/service-accounts.js';
 import config from '../lib/native-guide-config.js';
+import { buildTransactionProcessImageMessage } from '../lib/transaction-process-image.mjs';
 
 function enable(t, account) {
   for (const key of [account.enabledEnv, config.NATIVE_TEST_FLAGS[account.key], config.NATIVE_PUBLIC_FLAGS[account.key]].filter(Boolean)) {
@@ -17,10 +18,11 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
   test(`${account.account}: A candidate prepends one reused entrance and preserves the complete original eight-stage reply`, () => {
     const candidate = buildTransactionEntryCandidate({ account: account.account });
     const oldOverview = buildNativeGuide('process', { account: account.account });
-    assert.equal(candidate.messages.length, 2);
+    assert.equal(candidate.messages.length, 3);
     assert.deepEqual(candidate.messages[0], buildServiceEntryPreview('buy', { account: account.account }).messages[0]);
-    assert.deepEqual(candidate.messages.slice(1), oldOverview.messages);
-    assert.equal(candidate.messages[1].contents.contents.length, 8);
+    assert.deepEqual(candidate.messages[1], buildTransactionProcessImageMessage());
+    assert.deepEqual(candidate.messages.slice(2), oldOverview.messages);
+    assert.equal(candidate.messages[2].contents.contents.length, 8);
     const overviewAction = candidate.messages[0].contents.footer.contents.find(x => x.action.label === '交易流程總覽').action;
     assert.equal(overviewAction.data, PREFIX + 'process', 'old overview callback, never the new entrance itself');
     assert.equal(candidate.liveReady, false);
@@ -87,7 +89,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
       const a = await send({ source: { type: sourceType }, message: { type: 'text', text: CANDIDATE_ENTRY_TEXTS.buy } });
       assert.equal(a.route, 'native:entry:buy');
       assert.deepEqual(a.messages, buildTransactionEntryCandidate({ account: account.account }).messages);
-      assert.equal(a.messages.length, 2);
+      assert.equal(a.messages.length, 3);
       const callback = await send({ source: { type: sourceType }, type: 'postback', postback: { data: CANDIDATE_ENTRY_PREFIX + 'buy' } });
       assert.deepEqual(callback, a);
       assert.equal(await send({ source: { type: sourceType }, message: { type: 'text', text: CANDIDATE_ENTRY_TEXTS.buy + ' ' } }), null);

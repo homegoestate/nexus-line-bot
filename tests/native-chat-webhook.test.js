@@ -141,6 +141,7 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
   });
   await t.test('additive candidate A replies once with entrance then the exact eight-stage message for all three OAs and chat contexts', async () => {
     const { buildNativeGuide } = await import('../lib/native-chat-guide.mjs');
+    const { buildTransactionProcessImageMessage } = await import('../lib/transaction-process-image.mjs');
     const { buildTransactionEntryCandidate, CANDIDATE_ENTRY_TEXTS, CANDIDATE_ENTRY_PREFIX } = await import('../lib/service-entry-candidate.mjs');
     for (const account of Object.values(SERVICE_ACCOUNTS)) {
       process.env[NATIVE_PUBLIC_FLAGS[account.key]] = 'true';
@@ -155,8 +156,9 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
           assert.equal(replies.length, before + 1, 'one existing reply call; no second reply or push');
           assert.equal(replies.at(-1).account, account.key);
           assert.deepEqual(replies.at(-1).messages, expected);
-          assert.equal(replies.at(-1).messages.length, 2);
-          assert.deepEqual(replies.at(-1).messages[1], buildNativeGuide('process', { account: account.account }).messages[0]);
+          assert.equal(replies.at(-1).messages.length, 3);
+          assert.deepEqual(replies.at(-1).messages[1], buildTransactionProcessImageMessage());
+          assert.deepEqual(replies.at(-1).messages[2], buildNativeGuide('process', { account: account.account }).messages[0]);
         }
       }
       delete process.env[NATIVE_PUBLIC_FLAGS[account.key]];

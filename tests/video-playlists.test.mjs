@@ -10,6 +10,16 @@ import { buildWelcomeReply, routeEvent, TEXT_TRIGGERS, PILOT_PREFIX, OWNER_REGIS
 import { buildTransactionEntryCandidate, buildServiceEntryPreview, CANDIDATE_ENTRY_TEXTS } from '../lib/service-entry-candidate.mjs';
 import { VIDEO_PLAYLISTS, VIDEO_NATIVE_ALIASES, VIDEO_HUB_ACTION, videoQuickReplyActions, appendVideoQuickReplies, isVideoQuickReplyAction } from '../lib/video-playlists.mjs';
 import { stripVideoQuickReplies } from './helpers/video-quick-replies.mjs';
+import { buildTransactionProcessImageMessage } from '../lib/transaction-process-image.mjs';
+
+function originalImageFreePayload(view) {
+  const copy = structuredClone(view);
+  if (['candidate:entry:buy', 'native:entry:buy'].includes(copy.route)) {
+    assert.deepEqual(copy.messages[1], buildTransactionProcessImageMessage());
+    copy.messages.splice(1, 1);
+  }
+  return copy;
+}
 
 const expected = {
   loan: ['房貸主題影片', 'PLUuw-6j7Az84n9XshPwadjGTzPxFEovlJ'],
@@ -65,8 +75,9 @@ test('all 420 complete original payloads and all card contents keep their baseli
     const views = viewsFor(account.account), baseline = fixture.views[account.account];
     assert.deepEqual(Object.keys(views).sort(), Object.keys(baseline).sort());
     for (const [route, view] of Object.entries(views)) {
-      assert.equal(hash(stripVideoQuickReplies(view)), baseline[route].payloadSha256, account.account + ' ' + route);
-      assert.equal(hash(view.messages.map(message => message.contents ?? message.text)), baseline[route].contentsSha256, 'cards and texts are unchanged');
+      const original = originalImageFreePayload(view);
+      assert.equal(hash(stripVideoQuickReplies(original)), baseline[route].payloadSha256, account.account + ' ' + route);
+      assert.equal(hash(original.messages.map(message => message.contents ?? message.text)), baseline[route].contentsSha256, 'cards and texts are unchanged');
       checked++;
     }
   }
@@ -94,8 +105,9 @@ test('all group and room public routes preserve the baseline payload and card ha
     for (const sourceType of ['group', 'room']) for (const route of [...ROUTES, 'entry:buy']) {
       const result = await dispatch.getPilotReply({ ...base, source: { type: sourceType }, type: 'postback', postback: { data: PREFIX + route } }, account.destination, { account: account.key });
       const prior = fixture.sharedViews[account.account][sourceType + ':native:' + route];
-      assert.equal(hash(stripVideoQuickReplies(result)), prior.payloadSha256);
-      assert.equal(hash(result.messages.map(message => message.contents ?? message.text)), prior.contentsSha256);
+      const original = originalImageFreePayload(result);
+      assert.equal(hash(stripVideoQuickReplies(original)), prior.payloadSha256);
+      assert.equal(hash(original.messages.map(message => message.contents ?? message.text)), prior.contentsSha256);
       for (const message of result.messages) {
         assert.ok((message.quickReply?.items.length || 0) <= 13);
         assert.ok(!videoActions(message).some(action => action.type === 'message'));
@@ -159,8 +171,9 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
         assert.equal((await send(event)).messages[0].quickReply.items.at(-1).action.label, '房貸主題影片');
       }
       const a = await send({ source, message: { type: 'text', text: CANDIDATE_ENTRY_TEXTS.buy } });
-      assert.equal(a.messages.length, 2); assert.equal(a.messages[1].contents.contents.length, 8);
-      assert.deepEqual(videoActions(a.messages[1]), [{ type: 'uri', ...VIDEO_PLAYLISTS.safety }]);
+      assert.equal(a.messages.length, 3); assert.equal(a.messages[2].contents.contents.length, 8);
+      assert.deepEqual(a.messages[1], buildTransactionProcessImageMessage());
+      assert.deepEqual(videoActions(a.messages[2]), [{ type: 'uri', ...VIDEO_PLAYLISTS.safety }]);
     }
     assert.deepEqual(videoActions(buildWelcomeReply({ account: account.account }).messages[1]), [VIDEO_HUB_ACTION]);
     assert.deepEqual(videoActions((await send({ type: 'postback', postback: { data: PREFIX + 'services' } })).messages[0]), [VIDEO_HUB_ACTION]);
