@@ -19,7 +19,10 @@ test('new trigger and every text alternative stay in a separate exact namespace'
   }
   for (const text of ['測試服務導覽 ', '測試導覽：unknown', '貸款', '買賣流程 ', '买方備件', '估價', '租金', '💰試算']) assert.equal(routeEvent({ ...event, message: { type: 'text', text } }), null);
 });
-test('every native route is reachable and offers functional back or overview', () => {
+test('every native route is reachable and offers functional back or overview', t => {
+  const flag = config.NATIVE_PUBLIC_FLAGS['604gpqef'], old = process.env[flag];
+  process.env[flag] = 'true';
+  t.after(() => old === undefined ? delete process.env[flag] : process.env[flag] = old);
   const reached = new Set(['home']);
   const queue = ['home'];
   while (queue.length) {
@@ -30,6 +33,12 @@ test('every native route is reachable and offers functional back or overview', (
       assert.equal(a.type, 'postback');
       assert.ok(a.data.startsWith(PREFIX));
       const next = a.data.slice(PREFIX.length);
+      if (next === 'entry:buy') {
+        const entry = routeEvent({ ...event, type: 'postback', postback: { data: a.data } }, { account: '@604gpqef' });
+        assert.equal(entry.route, 'native:entry:buy');
+        assert.deepEqual(entry.messages.map(message => message.type), ['flex', 'image', 'flex']);
+        continue;
+      }
       assert.ok(ROUTES.includes(next));
       if (!reached.has(next)) { reached.add(next); queue.push(next); }
     }

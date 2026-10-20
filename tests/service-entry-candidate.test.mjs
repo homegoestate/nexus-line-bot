@@ -78,7 +78,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
       }
     });
   }
-  test(`${account.account}: additive A entry uses the existing dispatcher; original keywords, group guards and A/B remain unchanged`, async t => {
+  test(`${account.account}: A enters the role guide while B preserves the native first-card receiver`, async t => {
     enable(t, account);
     const event = { type: 'message', mode: 'active', source: { type: 'user' }, replyToken: 'offline-only', message: { type: 'text', text: 'unused' } };
     const send = changed => dispatch.getPilotReply({ ...event, ...changed }, account.destination, { account: account.key });
@@ -99,7 +99,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
       assert.ok(process.messages[0].quickReply.items.some(x => x.action.text === '買賣' && x.action.label === '原買賣影片／說明'));
     }
     const services = buildNativeGuide('services', { account: account.account }).messages[0].contents.contents[0].footer.contents;
-    assert.equal(services[0].action.data, PREFIX + 'process');
+    assert.equal(services[0].action.data, PREFIX + 'entry:buy');
     assert.equal(services[1].action.type, 'message');
     assert.equal(services[1].action.text, EXISTING_SERVICE_KEYWORDS[account.account][2]);
     assert.equal(services[2].action.text, '收支比');

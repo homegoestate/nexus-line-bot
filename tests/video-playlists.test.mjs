@@ -12,8 +12,16 @@ import { VIDEO_PLAYLISTS, VIDEO_NATIVE_ALIASES, VIDEO_HUB_ACTION, videoQuickRepl
 import { stripVideoQuickReplies } from './helpers/video-quick-replies.mjs';
 import { buildTransactionProcessImageMessage } from '../lib/transaction-process-image.mjs';
 
-function originalImageFreePayload(view) {
+function originalImageFreePayload(view, account) {
   const copy = structuredClone(view);
+  // Restore only the A action for historical snapshots. B and finance remain
+  // identical to production; native already owns the income entry and media.
+  if (copy.route === 'native:services') {
+    const buttons = copy.messages[0].contents.contents[0].footer.contents;
+    assert.deepEqual(buttons[0].action, { type: 'postback', label: '買賣過戶', data: PREFIX + 'entry:buy', displayText: '查看買賣過戶' });
+    assert.deepEqual(buttons[1].action, { type: 'message', label: '貸款規劃', text: account === '@528scwxf' ? '貸款' : '貸款規定' });
+    buttons[0].action.data = PREFIX + 'process';
+  }
   if (['candidate:entry:buy', 'native:entry:buy'].includes(copy.route)) {
     assert.deepEqual(copy.messages[1], buildTransactionProcessImageMessage());
     copy.messages.splice(1, 1);
@@ -66,7 +74,7 @@ test('seven URI actions match the exact approved public playlists and semantic l
   assert.deepEqual(VIDEO_NATIVE_ALIASES, ['主題影片', '影片清單', '影音導覽']);
 });
 
-test('all 420 complete original payloads and all card contents keep their baseline SHA after exact added quick replies are removed', t => {
+test('all 420 payloads restore historical SHA after only the documented image, video links and A entry action are normalized', t => {
   const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/video-baseline-hashes.json', import.meta.url)));
   assert.equal(fixture.baselineCommit, '3617f088b2c42fa1a95562190343fc3dc0f80bd3');
   let checked = 0;
@@ -75,7 +83,7 @@ test('all 420 complete original payloads and all card contents keep their baseli
     const views = viewsFor(account.account), baseline = fixture.views[account.account];
     assert.deepEqual(Object.keys(views).sort(), Object.keys(baseline).sort());
     for (const [route, view] of Object.entries(views)) {
-      const original = originalImageFreePayload(view);
+      const original = originalImageFreePayload(view, account.account);
       assert.equal(hash(stripVideoQuickReplies(original)), baseline[route].payloadSha256, account.account + ' ' + route);
       assert.equal(hash(original.messages.map(message => message.contents ?? message.text)), baseline[route].contentsSha256, 'cards and texts are unchanged');
       checked++;
@@ -105,7 +113,7 @@ test('all group and room public routes preserve the baseline payload and card ha
     for (const sourceType of ['group', 'room']) for (const route of [...ROUTES, 'entry:buy']) {
       const result = await dispatch.getPilotReply({ ...base, source: { type: sourceType }, type: 'postback', postback: { data: PREFIX + route } }, account.destination, { account: account.key });
       const prior = fixture.sharedViews[account.account][sourceType + ':native:' + route];
-      const original = originalImageFreePayload(result);
+      const original = originalImageFreePayload(result, account.account);
       assert.equal(hash(stripVideoQuickReplies(original)), prior.payloadSha256);
       assert.equal(hash(original.messages.map(message => message.contents ?? message.text)), prior.contentsSha256);
       for (const message of result.messages) {

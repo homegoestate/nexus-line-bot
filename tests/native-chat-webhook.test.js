@@ -106,7 +106,7 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
     assert.ok(requests.every(url => url.endsWith('/token') || url.endsWith('/message/reply')));
     assert.deepEqual(db, []);
   });
-  await t.test('integrated welcome and six native services make one signed webhook reply then hand off original text actions', async () => {
+  await t.test('integrated welcome and services reply once; A opens its role entrance and B–F preserve native handoff', async () => {
     failReply = false;
     const { EXISTING_SERVICE_KEYWORDS } = await import('../lib/native-chat-guide.mjs');
     for (const account of Object.values(SERVICE_ACCOUNTS)) {
@@ -123,9 +123,13 @@ test('native guide uses the unchanged signed webhook with three-account isolatio
       const cards = replies.at(-1).messages[0].contents.contents;
       const actions = cards.flatMap(card => card.footer.contents.map(button => button.action));
       assert.deepEqual(actions.map(action => action.label), ['買賣過戶', '貸款規劃', '收支比試算', '法人簽約', '自然人簽約', '加入社群']);
-      assert.equal(actions[0].data, 'hgchat:v2:process');
+      assert.equal(actions[0].data, 'hgchat:v2:entry:buy');
       const texts = actions.filter(action => action.type === 'message').map(action => action.text);
       assert.deepEqual(texts, [2, 4, 3, 1, 5].map(index => EXISTING_SERVICE_KEYWORDS[account.account][index]));
+      before = replies.length;
+      assert.equal(await post(account, { type: 'postback', postback: { data: actions[0].data } }), 200);
+      assert.equal(replies.length, before + 1);
+      assert.deepEqual(replies.at(-1).messages.map(message => message.type), ['flex', 'image', 'flex']);
       before = replies.length;
       for (const text of [...texts, '買賣', '交易流程', '交易流程總覽', '官方', '官方服務', '簽約文件－自然人', '簽約文件－公司法人', '貸款應備', '新青安', '服務導覽：不存在'])
         assert.equal(await post(account, { message: { type: 'text', text } }), 200);

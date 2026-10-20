@@ -65,7 +65,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     assert.deepEqual(EXISTING_SERVICE_KEYWORDS[account.account], expectedKeywords[account.account]);
     const ordered = result.messages[0].contents.contents.flatMap(card => card.footer.contents.map(button => button.action));
     assert.deepEqual(ordered.map(a => a.label), ['買賣過戶', '貸款規劃', '收支比試算', '法人簽約', '自然人簽約', '加入社群']);
-    assert.deepEqual(ordered[0], { type: 'postback', label: '買賣過戶', data: PREFIX + 'process', displayText: '查看買賣過戶' });
+    assert.deepEqual(ordered[0], { type: 'postback', label: '買賣過戶', data: PREFIX + 'entry:buy', displayText: '查看買賣過戶' });
     const buttons = actions(result, 'message');
     assert.deepEqual(buttons.map(a => a.text), [2, 4, 3, 1, 5].map(index => expectedKeywords[account.account][index]));
     assert.equal(buttons.length, 5);
@@ -79,12 +79,16 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     assert.doesNotMatch(JSON.stringify(result.messages), /3000|3,000|5000|5,000|10000|10,000|6000|6,000|免費估價|https?:\/\//);
   });
 
-  test(`${account.account}: service A and the existing backend text entry open all eight stages directly`, async t => {
+  test(`${account.account}: service A opens roles and image before eight stages; old overview callbacks and texts stay direct`, async t => {
     enable(t, account);
     const services = await click(account, PREFIX + 'services');
     const actionA = services.messages[0].contents.contents[0].footer.contents[0].action;
-    const overview = await click(account, actionA.data);
+    const entrance = await click(account, actionA.data);
+    assert.equal(entrance.route, 'native:entry:buy');
+    assert.deepEqual(entrance.messages.map(message => message.type), ['flex', 'image', 'flex']);
+    const overview = await click(account, PREFIX + 'process');
     assert.equal(overview.route, 'native:process');
+    assert.deepEqual(entrance.messages[2], overview.messages[0]);
     assert.deepEqual(overview, await send(account, { message: { type: 'text', text: '服務導覽：交易流程' } }));
     const cards = overview.messages[0].contents.contents;
     assert.equal(cards.length, 8);

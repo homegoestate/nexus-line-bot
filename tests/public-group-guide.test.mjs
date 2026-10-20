@@ -46,10 +46,14 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
         assert.equal(result.route, 'native:' + route);
         assert.doesNotMatch(JSON.stringify(result), /PRIVATE_|offline-group-reply|hgchat:v2:docs:|hgchat-test:v1:docs:/);
         walk(result, node => {
-          if (node.type === 'postback') assert.ok(ROUTES.includes(node.data.slice(PREFIX.length)), node.data);
+          if (node.type === 'postback') assert.ok(ROUTES.includes(node.data.slice(PREFIX.length)) || node.data === PREFIX + 'entry:buy', node.data);
           if (['group', 'room'].includes(type) && node.type === 'message') assert.notEqual(node.text, '宏國服務體驗');
         });
       }
+      const entrance = await dispatch.getPilotReply({ ...event, type: 'postback', postback: { data: PREFIX + 'entry:buy' } }, account.destination, { account: account.key });
+      assert.equal(entrance.route, 'native:entry:buy');
+      assert.deepEqual(entrance.messages.map(message => message.type), ['flex', 'image', 'flex']);
+      assert.doesNotMatch(JSON.stringify(entrance), /PRIVATE_|offline-group-reply/);
       for (const [text, route] of Object.entries(TEXT_ACTIONS)) {
         const result = await dispatch.getPilotReply({ ...event, message: { type: 'text', text } }, account.destination, { account: account.key });
         assert.equal(result.route, 'native:' + route, text);
