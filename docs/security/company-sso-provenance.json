@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-10-22",
+  "productionEnabled": false,
+  "productionDataModified": false,
+  "sources": [
+    {
+      "source": "Employee-management/index.html",
+      "sha256": "bff24dedecc20987d1c4692895d0b0ab9530c6d00dd0f68958a5577455947daf"
+    },
+    {
+      "source": "backend/authorization.mjs",
+      "sha256": "d0b57189a712f4d30722fa7317804502164aef8d1b279129b076f7ce86826fe1"
+    },
+    {
+      "source": "server/core.mjs",
+      "sha256": "f8f32d211f74852965bc213a2df95c4f3c2529b960bab14350bb8465beb15bab"
+    }
+  ]
+}
