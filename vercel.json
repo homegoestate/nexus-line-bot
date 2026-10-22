@@ -1,12 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "regions": ["bom1"],
+  "regions": [
+    "bom1"
+  ],
   "functions": {
     "api/index.js": {
       "maxDuration": 30
     },
     "api/consult-availability.js": {
+      "maxDuration": 30
+    },
+    "api/company-sso.mjs": {
       "maxDuration": 30
     }
   },
@@ -14,6 +19,12 @@
     {
       "path": "/api/sync",
       "schedule": "0 20 * * *"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/sso-api/:action",
+      "destination": "/api/company-sso?route=:action"
     }
   ]
 }
