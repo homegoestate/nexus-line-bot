@@ -63,7 +63,7 @@ test('discovery does not broaden exact keyword routing or create message/postbac
   for(const account of Object.keys(accounts.SERVICE_ACCOUNTS)) {
     for(const text of ['房產選擇先試試','安心城體驗','我想玩安心城',' 安心城','安心城 ','買賣','貸款','官方服務','公司簽約']) assert.equal(await send(account,{message:{type:'text',text}}),null);
     const exact=await send(account,{message:{type:'text',text:'安心城'}});
-    assert.deepEqual(exact,account==='604gpqef'?keyword.buildAnxinCityReply():null);
+    assert.deepEqual(exact,keyword.buildAnxinCityReply());
   }
 });
 

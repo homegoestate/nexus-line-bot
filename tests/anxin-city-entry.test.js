@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const http = require('node:http');
-const { ANXIN_CITY_LINKS, buildAnxinCityReply, routeAnxinCityEntry } = require('../lib/anxin-city-entry');
+const { ANXIN_CITY_ACCOUNTS, ANXIN_CITY_LINKS, buildAnxinCityReply, routeAnxinCityEntry } = require('../lib/anxin-city-entry');
 const { SERVICE_ACCOUNTS } = require('../lib/service-accounts');
 const { getPilotReply, PILOT_VERSION } = require('../lib/pilot-dispatch');
 const config = require('../lib/native-guide-config');
@@ -23,7 +23,7 @@ function setEnv(t, values) {
 }
 
 test('one bounded Flex bubble has only the six fixed public URLs and no user data', () => {
-  assert.equal(PILOT_VERSION, 'hgservice-20261025-v10-anxin-city-entry');
+  assert.equal(PILOT_VERSION, 'hgservice-20261026-v11-anxin-city-three-oa');
   const reply = buildAnxinCityReply();
   assert.equal(reply.messages.length, 1);
   const message = reply.messages[0];
@@ -46,10 +46,11 @@ test('one bounded Flex bubble has only the six fixed public URLs and no user dat
   assert.doesNotMatch(JSON.stringify(routed), /offline-user|offline-reply|DO_NOT_ECHO/);
 });
 
-test('pure route accepts only exact 安心城 on active brand private chat and returns fresh payloads', () => {
+test('pure route accepts exact 安心城 on the three approved active private chats and returns fresh payloads', () => {
   const expected = buildAnxinCityReply();
-  assert.deepEqual(routeAnxinCityEntry(baseEvent(), '604gpqef'), expected);
-  for (const account of ['528scwxf', '375umdzq', '@604gpqef', 'unknown', undefined, null]) {
+  assert.deepEqual(ANXIN_CITY_ACCOUNTS, ['604gpqef', '375umdzq', '528scwxf']);
+  for (const account of ANXIN_CITY_ACCOUNTS) assert.deepEqual(routeAnxinCityEntry(baseEvent(), account), expected);
+  for (const account of ['training', '@604gpqef', '@375umdzq', '@528scwxf', 'unknown', undefined, null]) {
     assert.equal(routeAnxinCityEntry(baseEvent(), account), null);
   }
   for (const text of [...nonExact, ...nativeKeywords]) {
@@ -74,7 +75,7 @@ test('dispatcher keeps verified destination, account opt-in, exact text and orig
   setEnv(t, flags);
   for (const account of Object.values(SERVICE_ACCOUNTS)) {
     const result = await getPilotReply(baseEvent(), account.destination, { account: account.key });
-    assert.deepEqual(result, account.key === '604gpqef' ? buildAnxinCityReply() : null);
+    assert.deepEqual(result, buildAnxinCityReply());
     for (const text of [...nonExact, ...nativeKeywords]) {
       assert.equal(await getPilotReply({ ...baseEvent(), message: { type: 'text', text } }, account.destination, { account: account.key }), null);
     }
@@ -84,12 +85,17 @@ test('dispatcher keeps verified destination, account opt-in, exact text and orig
     assert.equal(await getPilotReply({ ...baseEvent(), ...changed }, brand.destination), null);
   }
   assert.equal(await getPilotReply(baseEvent(), 'wrong-destination'), null);
-  assert.equal(await getPilotReply({ ...baseEvent(), account: '604gpqef' }, SERVICE_ACCOUNTS['528scwxf'].destination, { account: '528scwxf' }), null);
+  assert.deepEqual(await getPilotReply({ ...baseEvent(), account: '604gpqef' }, SERVICE_ACCOUNTS['528scwxf'].destination, { account: '528scwxf' }), buildAnxinCityReply(), 'event hints cannot change the verified account');
+  for (const account of Object.values(SERVICE_ACCOUNTS).filter(a => a.enabledEnv)) {
+    process.env[account.enabledEnv] = 'false';
+    assert.equal(await getPilotReply(baseEvent(), account.destination, { account: account.key }), null);
+    process.env[account.enabledEnv] = 'true';
+  }
   process.env.HG_SERVICE_PILOT_ENABLED = 'false';
   assert.equal(await getPilotReply(baseEvent(), brand.destination), null);
 });
 
-test('signed local webhook replies once only for the brand exact keyword, with no network or database access', async t => {
+test('signed local webhook replies once per approved account exact keyword, with no network or database access', async t => {
   const env = {
     CHANNEL_SECRET: 'offline-default-secret', CHANNEL_ACCESS_TOKEN: 'offline-default-token',
     SUPABASE_URL: 'https://example.supabase.co', SUPABASE_KEY: 'offline-database-key',
@@ -116,6 +122,12 @@ test('signed local webhook replies once only for the brand exact keyword, with n
   const originalFunctions = require(functionsPath);
   require.cache[functionsPath].exports = { ...originalFunctions, waitUntil: promise => background.push(promise) };
   t.after(() => { require.cache[functionsPath].exports = originalFunctions; });
+  const statelessPath = require.resolve('../lib/stateless-line-client');
+  const originalStateless = require(statelessPath);
+  require.cache[statelessPath].exports = { ...originalStateless, createStatelessLineClient: () => ({
+    replyMessage: async (replyToken, messages) => { replies.push({ replyToken, messages }); return {}; },
+  }) };
+  t.after(() => { require.cache[statelessPath].exports = originalStateless; });
   const app = require('../api/index');
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
@@ -137,11 +149,20 @@ test('signed local webhook replies once only for the brand exact keyword, with n
   assert.equal(replies.length, 1);
   assert.deepEqual(replies[0].messages, buildAnxinCityReply().messages);
   for (const account of Object.values(SERVICE_ACCOUNTS)) {
-    if (account !== brand) assert.equal(await post(account), 200);
+    if (account !== brand) {
+      const count = replies.length;
+      assert.equal(await post(account), 200);
+      assert.equal(replies.length, count + 1);
+      assert.deepEqual(replies.at(-1).messages, buildAnxinCityReply().messages);
+    }
     for (const text of [...nonExact, ...nativeKeywords]) assert.equal(await post(account, { message: { type: 'text', text } }), 200);
     for (const sourceType of ['group', 'room']) assert.equal(await post(account, { source: { type: sourceType } }), 200);
   }
   assert.equal(await post(brand, {}, 'wrong-destination'), 200);
   assert.ok(await post(brand, {}, brand.destination, 'wrong-secret') >= 400);
-  assert.equal(replies.length, 1);
+  for (const account of Object.values(SERVICE_ACCOUNTS).filter(a => a !== brand)) {
+    assert.ok(await post(account, {}, account.destination, 'wrong-secret') >= 400);
+    assert.equal(await post(account, {}, brand.destination), 403);
+  }
+  assert.equal(replies.length, 3);
 });
