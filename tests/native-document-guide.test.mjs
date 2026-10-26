@@ -103,7 +103,7 @@ test('retired flags show simple finance per account while archived snapshots rem
     const publicFlag = config.NATIVE_PUBLIC_FLAGS[key], publicOld = process.env[publicFlag]; process.env[publicFlag] = 'true';
     t.after(() => { if (publicOld === undefined) delete process.env[publicFlag]; else process.env[publicFlag] = publicOld; });
     const oldEvent = { ...base, message: { type: 'text', text: '測試服務導覽' } };
-    assert.deepEqual(routeNativeGuide(oldEvent, '@' + key), buildNativeGuide('home'));
+    assert.deepEqual(routeNativeGuide(oldEvent, '@' + key), buildNativeGuide('home', { account: '@' + key, discovery: true }));
     assert.deepEqual(routeNativeGuide(base, '@' + key), buildNativeGuide('finance'));
     for (const bad of ['TRUE', '1', 'false', '']) { process.env[flag] = bad; assert.deepEqual(routeNativeGuide(base, '@' + key), buildNativeGuide('finance')); }
     process.env[flag] = 'true';

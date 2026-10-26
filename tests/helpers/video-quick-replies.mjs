@@ -1,4 +1,5 @@
 import { isVideoQuickReplyAction } from '../../lib/video-playlists.mjs';
+import { stripAnxinDiscovery } from './anxin-discovery.mjs';
 
 // Old assertions still cover the complete original payload. Only exact newly
 // authorized quick replies are removed; unexpected URLs/actions remain visible.
@@ -18,5 +19,6 @@ export function stripVideoQuickReplies(value) {
 
 export const originalPayload = fn => (...args) => {
   const result = fn(...args);
-  return result?.then ? result.then(stripVideoQuickReplies) : stripVideoQuickReplies(result);
+  const historical = value => stripVideoQuickReplies(stripAnxinDiscovery(value));
+  return result?.then ? result.then(historical) : historical(result);
 };

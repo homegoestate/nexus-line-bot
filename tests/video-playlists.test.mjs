@@ -10,10 +10,11 @@ import { buildWelcomeReply, routeEvent, TEXT_TRIGGERS, PILOT_PREFIX, OWNER_REGIS
 import { buildTransactionEntryCandidate, buildServiceEntryPreview, CANDIDATE_ENTRY_TEXTS } from '../lib/service-entry-candidate.mjs';
 import { VIDEO_PLAYLISTS, VIDEO_NATIVE_ALIASES, VIDEO_HUB_ACTION, videoQuickReplyActions, appendVideoQuickReplies, isVideoQuickReplyAction } from '../lib/video-playlists.mjs';
 import { stripVideoQuickReplies } from './helpers/video-quick-replies.mjs';
+import { stripAnxinDiscovery } from './helpers/anxin-discovery.mjs';
 import { buildTransactionProcessImageMessage } from '../lib/transaction-process-image.mjs';
 
 function originalImageFreePayload(view, account) {
-  const copy = structuredClone(view);
+  const copy = stripAnxinDiscovery(view);
   // Restore only the A action for historical snapshots. B and finance remain
   // identical to production; native already owns the income entry and media.
   if (copy.route === 'native:services') {
@@ -74,7 +75,7 @@ test('seven URI actions match the exact approved public playlists and semantic l
   assert.deepEqual(VIDEO_NATIVE_ALIASES, ['主題影片', '影片清單', '影音導覽']);
 });
 
-test('all 420 payloads restore historical SHA after only the documented image, video links and A entry action are normalized', t => {
+test('all 420 payloads restore historical SHA after exact discovery, image, video and A-entry additions are normalized', t => {
   const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/video-baseline-hashes.json', import.meta.url)));
   assert.equal(fixture.baselineCommit, '3617f088b2c42fa1a95562190343fc3dc0f80bd3');
   let checked = 0;
