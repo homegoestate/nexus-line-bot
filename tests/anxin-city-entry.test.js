@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const http = require('node:http');
-const { ANXIN_CITY_ACCOUNTS, ANXIN_CITY_LINKS, buildAnxinCityReply, routeAnxinCityEntry } = require('../lib/anxin-city-entry');
+const { ANXIN_CITY_ACCOUNTS, ANXIN_CITY_LINKS, buildAnxinCityReply, buildAnxinCityGroupReply, routeAnxinCityEntry } = require('../lib/anxin-city-entry');
 const { SERVICE_ACCOUNTS } = require('../lib/service-accounts');
 const { getPilotReply, PILOT_VERSION } = require('../lib/pilot-dispatch');
 const config = require('../lib/native-guide-config');
@@ -23,7 +23,7 @@ function setEnv(t, values) {
 }
 
 test('one bounded Flex bubble has only the six fixed public URLs and no user data', () => {
-  assert.equal(PILOT_VERSION, 'hgservice-20261026-v11-anxin-city-three-oa');
+  assert.equal(PILOT_VERSION, 'hgservice-20261026-v12-brand-group-anxin');
   const reply = buildAnxinCityReply();
   assert.equal(reply.messages.length, 1);
   const message = reply.messages[0];
@@ -56,7 +56,7 @@ test('pure route accepts exact 安心城 on the three approved active private ch
   for (const text of [...nonExact, ...nativeKeywords]) {
     assert.equal(routeAnxinCityEntry({ ...baseEvent(), message: { type: 'text', text } }, '604gpqef'), null);
   }
-  for (const changed of [{ mode: 'standby' }, { mode: undefined }, { source: { type: 'group' } }, { source: { type: 'room' } }, { source: {} }, { type: 'follow' }, { type: 'postback', postback: { data: '安心城' } }, { message: { type: 'image' } }]) {
+  for (const changed of [{ mode: 'standby' }, { mode: undefined }, { source: { type: 'room' } }, { source: {} }, { type: 'follow' }, { type: 'postback', postback: { data: '安心城' } }, { message: { type: 'image' } }]) {
     assert.equal(routeAnxinCityEntry({ ...baseEvent(), ...changed }, '604gpqef'), null);
   }
   for (const event of [null, undefined, {}, []]) assert.equal(routeAnxinCityEntry(event, '604gpqef'), null);
@@ -81,7 +81,7 @@ test('dispatcher keeps verified destination, account opt-in, exact text and orig
     }
   }
   const brand = SERVICE_ACCOUNTS['604gpqef'];
-  for (const changed of [{ replyToken: '' }, { replyToken: 'x'.repeat(257) }, { mode: 'standby' }, { source: { type: 'group' } }, { source: { type: 'room' } }]) {
+  for (const changed of [{ replyToken: '' }, { replyToken: 'x'.repeat(257) }, { mode: 'standby' }, { source: { type: 'room' } }]) {
     assert.equal(await getPilotReply({ ...baseEvent(), ...changed }, brand.destination), null);
   }
   assert.equal(await getPilotReply(baseEvent(), 'wrong-destination'), null);
@@ -156,13 +156,35 @@ test('signed local webhook replies once per approved account exact keyword, with
       assert.deepEqual(replies.at(-1).messages, buildAnxinCityReply().messages);
     }
     for (const text of [...nonExact, ...nativeKeywords]) assert.equal(await post(account, { message: { type: 'text', text } }), 200);
-    for (const sourceType of ['group', 'room']) assert.equal(await post(account, { source: { type: sourceType } }), 200);
+    for (const sourceType of ['group', 'room']) {
+      const count = replies.length;
+      assert.equal(await post(account, { source: { type: sourceType } }), 200);
+      if (account === brand && sourceType === 'group') {
+        assert.equal(replies.length, count + 1);
+        assert.deepEqual(replies.at(-1).messages, buildAnxinCityGroupReply().messages);
+      } else assert.equal(replies.length, count);
+    }
+  }
+  for (const account of Object.values(SERVICE_ACCOUNTS)) {
+    const probe = await new Promise((resolve, reject) => {
+      http.get({ hostname: '127.0.0.1', port: server.address().port, path: '/api?pilot=version&account=' + account.key }, response => {
+        let body = ''; response.on('data', chunk => body += chunk);
+        response.on('end', () => { try { resolve({ status: response.statusCode, body: JSON.parse(body) }); } catch (error) { reject(error); } });
+      }).on('error', reject);
+    });
+    assert.equal(probe.status, 200);
+    assert.equal(probe.body.anxinCityReady, true);
+    assert.equal(probe.body.anxinCityContentSha256, crypto.createHash('sha256').update(JSON.stringify(buildAnxinCityReply().messages)).digest('hex'));
+    assert.equal(probe.body.anxinCityContexts.group.ready, account === brand);
+    assert.equal(probe.body.anxinCityContexts.room.ready, false);
+    assert.equal(probe.body.anxinCityContexts.group.contentSha256, account === brand ? crypto.createHash('sha256').update(JSON.stringify(buildAnxinCityGroupReply().messages)).digest('hex') : null);
   }
   assert.equal(await post(brand, {}, 'wrong-destination'), 200);
   assert.ok(await post(brand, {}, brand.destination, 'wrong-secret') >= 400);
+  assert.ok(await post(brand, { source: { type: 'group' } }, brand.destination, 'wrong-secret') >= 400);
   for (const account of Object.values(SERVICE_ACCOUNTS).filter(a => a !== brand)) {
     assert.ok(await post(account, {}, account.destination, 'wrong-secret') >= 400);
     assert.equal(await post(account, {}, brand.destination), 403);
   }
-  assert.equal(replies.length, 3);
+  assert.equal(replies.length, 4);
 });
