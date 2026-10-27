@@ -15,6 +15,25 @@ import { buildTransactionProcessImageMessage } from '../lib/transaction-process-
 
 function originalImageFreePayload(view, account) {
   const copy = stripAnxinDiscovery(view);
+  // Restore only the explicitly approved private overview spacing and repeated
+  // common notice. Historical hashes still check all stage text and actions.
+  for (const message of copy.messages) {
+    if (message.contents?.type !== 'carousel') continue;
+    const cards = message.contents.contents;
+    if (cards.length !== 8 || cards[0].body?.paddingAll !== '16px') continue;
+    const notice = '流程說明不代表案件已送件或辦結；以本案契約、銀行及承辦通知為準。';
+    assert.equal(cards.flatMap(card => card.body.contents).filter(node => node.text === notice).length, 1);
+    cards.forEach((card, index) => {
+      assert.deepEqual([card.body.flex, card.body.spacing, card.footer.flex, card.footer.paddingAll, card.footer.paddingTop, card.footer.spacing], [0, 'xs', 0, '12px', '8px', 'xs']);
+      delete card.body.flex; delete card.body.paddingAll; card.body.spacing = 'sm';
+      delete card.footer.flex; delete card.footer.paddingAll; delete card.footer.paddingTop; card.footer.spacing = 'sm';
+      for (const node of card.body.contents) {
+        if (node.type === 'text' && node.size === 'lg') node.size = 'xl';
+        if (node.margin) node.margin = node.type === 'separator' ? 'sm' : node.text === notice ? 'lg' : 'md';
+      }
+      if (index > 0) card.body.contents.push({ type: 'text', text: notice, size: 'xs', color: '#405E70', wrap: true, margin: 'lg' });
+    });
+  }
   // Restore only the A action for historical snapshots. B and finance remain
   // identical to production; native already owns the income entry and media.
   if (copy.route === 'native:services') {

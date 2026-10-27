@@ -25,7 +25,7 @@ for (const account of Object.values(accounts.SERVICE_ACCOUNTS)) {
     test(`${account.account} ${type}: A text and callback return the complete public eight-stage overview`, async t => {
       enable(t, account);
       const event = eventFor(type), options = { account: account.account };
-      const expected = buildNativeGuide('process', options);
+      const expected = buildNativeGuide('process', { ...options, sharedContext: type !== 'user' });
       for (const input of [event, { ...event, type: 'postback', postback: { data: PREFIX + 'process' } }]) {
         assert.deepEqual(routeNativeGuide(input, account.account), expected);
         assert.deepEqual(routeEvent(input, options), expected);

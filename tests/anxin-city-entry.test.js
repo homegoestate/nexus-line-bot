@@ -23,15 +23,16 @@ function setEnv(t, values) {
 }
 
 test('one bounded Flex bubble has only the six fixed public URLs and no user data', () => {
-  assert.equal(PILOT_VERSION, 'hgservice-20261026-v12-brand-group-anxin');
+  assert.equal(PILOT_VERSION, 'hgservice-20261027-v13-compact-replies');
   const reply = buildAnxinCityReply();
   assert.equal(reply.messages.length, 1);
   const message = reply.messages[0];
   assert.equal(message.type, 'flex');
   assert.ok(message.altText.length <= 400);
   assert.equal(message.contents.type, 'bubble');
-  assert.equal(message.contents.footer.contents.length, 6);
-  assert.deepEqual(message.contents.footer.contents.map(button => button.action), ANXIN_CITY_LINKS.map(link => ({ type: 'uri', ...link })));
+  assert.equal(message.contents.footer.contents.length, 3);
+  assert.ok(message.contents.footer.contents.every(row => row.layout === 'horizontal' && row.contents.length === 2));
+  assert.deepEqual(message.contents.footer.contents.flatMap(row => row.contents.map(button => button.action)), ANXIN_CITY_LINKS.map(link => ({ type: 'uri', ...link })));
   const starts = ['first-home', 'move-home', 'seller', 'legacy-family', 'tainan'];
   for (const [index, link] of ANXIN_CITY_LINKS.entries()) {
     assert.ok(link.label.length <= 20);
@@ -61,7 +62,7 @@ test('pure route accepts exact 安心城 on the three approved active private ch
   }
   for (const event of [null, undefined, {}, []]) assert.equal(routeAnxinCityEntry(event, '604gpqef'), null);
   const first = routeAnxinCityEntry(baseEvent(), '604gpqef');
-  first.messages[0].contents.footer.contents[0].action.uri = 'https://invalid.example/';
+  first.messages[0].contents.footer.contents[0].contents[0].action.uri = 'https://invalid.example/';
   assert.deepEqual(routeAnxinCityEntry(baseEvent(), '604gpqef'), expected);
 });
 
