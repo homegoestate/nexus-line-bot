@@ -82,3 +82,72 @@ test("GET reports only freebusy-derived slots, never private event details",asyn
   assert.ok(!r.body.includes("paid-consult@example.invalid"));
  }finally{global.fetch=original;restore();}
 });
+
+
+test('15 minute buffers, lunch, weekends, all-day and cross-month conflicts',()=>{
+ const hours=readOfferedHours(JSON.stringify(Object.fromEntries([1,2,3,4,5].map(d=>[d,[["09:00","12:00"],["14:00","17:00"]]]))));
+ const options={day:'2026-10-30',days:5,hours,now:Date.parse('2026-10-29T08:00:00+08:00'),duration:60,grid:30,noticeHours:24,buffer:15};
+ const busy=[{start:'2026-10-30T16:00:00+08:00',end:'2026-10-30T17:00:00+08:00'},
+ {start:'2026-11-02T00:00:00+08:00',end:'2026-11-03T00:00:00+08:00'},
+ {start:'2026-11-03T11:00:00+08:00',end:'2026-11-03T12:00:00+08:00'},
+ {start:'2026-11-03T14:30:00+08:00',end:'2026-11-03T17:30:00+08:00'}];
+ const slots=makeSlots({...options,busy});
+ assert.ok(slots.some(s=>s.start==='2026-10-30T14:30:00+08:00'));
+ assert.ok(!slots.some(s=>s.start==='2026-10-30T15:00:00+08:00'));
+ assert.ok(!slots.some(s=>s.start.slice(0,10)==='2026-11-02'));
+ assert.ok(!slots.some(s=>['2026-10-31','2026-11-01'].includes(s.start.slice(0,10))));
+ assert.deepEqual(slots.filter(s=>s.start.startsWith('2026-11-03')).map(s=>s.start.slice(11,16)),['09:00','09:30']);
+ assert.ok(slots.every(s=>!['12','13'].includes(s.start.slice(11,13))));
+ assert.ok(makeSlots({...options,busy:[]}).length>slots.length,'cancelled/transparent events absent from FreeBusy no longer block');
+});
+test('notice boundary and buffers across query midnight',()=>{
+ const hours=readOfferedHours('{"5":[["00:00","02:00"]]}');
+ const base={day:'2026-10-30',days:1,hours,now:Date.parse('2026-10-29T00:00:00+08:00'),noticeHours:24,buffer:15};
+ assert.equal(makeSlots({...base,busy:[]})[0].start,'2026-10-30T00:00:00+08:00');
+ const slots=makeSlots({...base,busy:[{start:'2026-10-29T23:30:00+08:00',end:'2026-10-29T23:55:00+08:00'}]});
+ assert.equal(slots[0].start,'2026-10-30T00:30:00+08:00');
+ assert.ok(!makeSlots({...base,busy:[],now:base.now+1}).some(s=>s.start==='2026-10-30T00:00:00+08:00'));
+});
+test('all mapped calendars are mandatory; invalid Google data or authorization fails closed',async()=>{
+ const restore=envBackup(envKeys), original=global.fetch;
+ const {privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});const day=tomorrow();
+ try{
+  process.env.HG_BOOKING_GOOGLE_CLIENT_EMAIL='test-only@example.invalid';
+  process.env.HG_BOOKING_GOOGLE_PRIVATE_KEY=privateKey.export({type:'pkcs8',format:'pem'});
+  process.env.HG_BOOKING_YICHENG_BUSY_CALENDARS='blocking@example.invalid,paid@example.invalid';
+  process.env.HG_BOOKING_YICHENG_HOURS_JSON=JSON.stringify(weekHours());
+  process.env.HG_BOOKING_BUFFER_MINUTES='15';process.env.HG_BOOKING_NOTICE_HOURS='0';
+  for(const calendars of [null,{}, {'blocking@example.invalid':{busy:[]}},
+   {'blocking@example.invalid':{busy:[]},'paid@example.invalid':{errors:[{reason:'notFound'}],busy:[]}},
+   {'blocking@example.invalid':{busy:[]},'paid@example.invalid':{busy:[{start:day+'T10:00:00+08:00',end:day+'T09:00:00+08:00'}]}},
+   {'blocking@example.invalid':{busy:[]},'paid@example.invalid':{busy:[{start:day+'T10:00:00',end:day+'T11:00:00'}]}}
+  ]){
+   global.fetch=async(url,options)=>{
+    if(url.includes('oauth2'))return {ok:true,json:async()=>({access_token:'test-only'})};
+    const body=JSON.parse(options.body);
+    assert.equal(Date.parse(body.timeMin),localDayMs(day)-15*60000);
+    assert.equal(Date.parse(body.timeMax),localDayMs(day)+86400000+15*60000);
+    return {ok:true,json:async()=>({calendars})};
+   };
+   const r=createRes();await handler({method:'GET',url:'/api/consult-availability?advisor=yi-cheng&days=1&from='+day,headers:{}},r);
+   assert.equal(r.statusCode,503);assert.deepEqual(JSON.parse(r.body),{error:'calendar_unavailable'});
+  }
+  global.fetch=async()=>({ok:false});
+  const r=createRes();await handler({method:'GET',url:'/api/consult-availability?advisor=yi-cheng&days=1&from='+day,headers:{}},r);assert.equal(r.statusCode,503);
+ }finally{global.fetch=original;restore();}
+});
+test('paid-calendar conflicts block even when other calendar is empty',async()=>{
+ const restore=envBackup(envKeys), original=global.fetch;
+ const {privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});const day=tomorrow();
+ try{
+  Object.assign(process.env,{HG_BOOKING_GOOGLE_CLIENT_EMAIL:'test-only@example.invalid',HG_BOOKING_GOOGLE_PRIVATE_KEY:privateKey.export({type:'pkcs8',format:'pem'}),HG_BOOKING_YICHENG_BUSY_CALENDARS:'blocking@example.invalid,paid@example.invalid',HG_BOOKING_YICHENG_HOURS_JSON:JSON.stringify(weekHours()),HG_BOOKING_NOTICE_HOURS:'0',HG_BOOKING_BUFFER_MINUTES:'15'});
+  global.fetch=async url=>url.includes('oauth2')?{ok:true,json:async()=>({access_token:'test-only'})}:{ok:true,json:async()=>({calendars:{'blocking@example.invalid':{busy:[]},'paid@example.invalid':{busy:[{start:day+'T09:30:00+08:00',end:day+'T10:30:00+08:00'}]}}})};
+  const r=createRes();await handler({method:'GET',url:'/api/consult-availability?advisor=yi-cheng&days=1&from='+day,headers:{}},r);
+  assert.equal(r.statusCode,200);assert.deepEqual(JSON.parse(r.body).slots.map(s=>s.start),[day+'T11:00:00+08:00']);
+ }finally{global.fetch=original;restore();}
+});
+test('CORS, methods and unknown prototype advisor names are rejected',async()=>{
+ for(const [req,status] of [[{method:'GET',headers:{origin:'https://untrusted.invalid'}},403],[{method:'POST',headers:{}},405],[{method:'OPTIONS',headers:{}},204],...["constructor","__proto__","team"].map(a=>[{method:'GET',headers:{},url:'/api/consult-availability?advisor='+a},400])]){
+  const r=createRes();await handler(req,r);assert.equal(r.statusCode,status);
+ }
+});
