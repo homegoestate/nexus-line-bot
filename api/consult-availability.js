@@ -116,13 +116,16 @@ async function getBusy(env,ids,fromMs,toMs,fetcher){
   });
   if(!response.ok)throw new Error("google_freebusy_unavailable");
   const data=await response.json();
-  if(!data||typeof data.calendars!=="object")throw new Error("calendar_response_invalid");
+  if(!data||!data.calendars||typeof data.calendars!=="object"||Array.isArray(data.calendars))throw new Error("calendar_response_invalid");
   const busy=[];
   for(const id of ids){
     const cal=data.calendars[id];
     if(!cal||!Array.isArray(cal.busy)||(cal.errors&&cal.errors.length))throw new Error("calendar_unreadable");
     for(const block of cal.busy){
-      if(!block||!Number.isFinite(Date.parse(block.start))||!Number.isFinite(Date.parse(block.end)))throw new Error("calendar_busy_invalid");
+      const rfc3339=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+      if(!block||!rfc3339.test(block.start)||!rfc3339.test(block.end)
+          ||!Number.isFinite(Date.parse(block.start))||!Number.isFinite(Date.parse(block.end))
+          ||Date.parse(block.end)<=Date.parse(block.start))throw new Error("calendar_busy_invalid");
       busy.push({start:block.start,end:block.end});
     }
   }
@@ -145,7 +148,7 @@ async function handler(req,res){
   if(req.method!=="GET")return json(res,405,{error:"method_not_allowed"});
   const params=new URL(req.url||"/","https://booking.invalid").searchParams;
   const advisor=params.get("advisor")||"";
-  const config=ADVISORS[advisor];
+  const config=Object.hasOwn(ADVISORS,advisor)?ADVISORS[advisor]:null;
   const day=params.get("from")||todayTaipei();
   const days=Number(params.get("days")||"14");
   const today=parseDay(todayTaipei()),requested=parseDay(day);
@@ -159,15 +162,17 @@ async function handler(req,res){
       ||!process.env.HG_BOOKING_GOOGLE_CLIENT_EMAIL||!process.env.HG_BOOKING_GOOGLE_PRIVATE_KEY)
     return json(res,503,{error:"calendar_not_configured"});
   try{
+    // Include neighbouring days so a buffer crossing midnight cannot miss a conflict.
+    const busy=await getBusy(process.env,ids,localDayMs(day)-buffer*60000,localDayMs(day)+days*DAY+buffer*60000,fetch);
     const now=Date.now();
-    const busy=await getBusy(process.env,ids,localDayMs(day),localDayMs(day)+days*DAY,fetch);
     const slots=makeSlots({day,days,hours,busy,now,duration,grid,noticeHours,buffer});
     return json(res,200,{source:"google-calendar-freebusy",timezone:"Asia/Taipei",checkedAt:new Date(now).toISOString(),advisor,slots});
   }catch(e){
     // Never expose calendar IDs, Google event details, tokens or credentials to callers.
-    console.error("[booking freebusy] unavailable:",e?.message||"unknown");
+    console.error("[booking freebusy] unavailable");
     return json(res,503,{error:"calendar_unavailable"});
   }
 }
 module.exports=handler;
 module.exports._test={parseDay,localDayMs,readOfferedHours,listedCalendars,formatTaipei,makeSlots,minutes,serviceJwt};
+
