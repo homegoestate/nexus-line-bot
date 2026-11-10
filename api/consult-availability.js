@@ -248,8 +248,9 @@ async function handler(req,res){
   const hours=readOfferedHours(hoursText);
   const duration=durationFromConfig(process.env),grid=gridFromConfig(process.env);
   const noticeHours=noticeFromConfig(process.env),buffer=bufferFromConfig(process.env);
-  const script=appsScriptUrl(process.env,!!company||!!process.env[config.calendarEnv]);
   const hasKey=!!process.env.HG_BOOKING_GOOGLE_CLIENT_EMAIL&&!!process.env.HG_BOOKING_GOOGLE_PRIVATE_KEY;
+  // Key-based modes take over only when fully set up (keys present); leftover partial envs are ignored.
+  const script=appsScriptUrl(process.env,hasKey&&(!!company||!!process.env[config.calendarEnv]));
   const sourceOk=script===null?false:script?true:(company?(companyOk&&!!tags):!!ids)&&hasKey;
   if(!sourceOk||!hours||!duration||!grid||noticeHours===null||buffer===null)
     return json(res,503,{error:"calendar_not_configured"});

@@ -6,7 +6,7 @@ const crypto=require("node:crypto");
 const handler=require("../api/consult-availability.js");
 const {taggedBusyBlock,listedTags}=handler._test;
 
-const keys=["HG_BOOKING_GOOGLE_CLIENT_EMAIL","HG_BOOKING_GOOGLE_PRIVATE_KEY","HG_BOOKING_COMPANY_CALENDAR",
+const keys=["HG_BOOKING_APPS_SCRIPT_URL","HG_BOOKING_GOOGLE_CLIENT_EMAIL","HG_BOOKING_GOOGLE_PRIVATE_KEY","HG_BOOKING_COMPANY_CALENDAR",
  "HG_BOOKING_YICHENG_BUSY_CALENDARS","HG_BOOKING_MINGZONG_BUSY_CALENDARS","HG_BOOKING_YICHENG_HOURS_JSON",
  "HG_BOOKING_MINGZONG_HOURS_JSON","HG_BOOKING_HOURS_JSON","HG_BOOKING_YICHENG_TAGS","HG_BOOKING_MINGZONG_TAGS",
  "HG_BOOKING_SESSION_MINUTES","HG_BOOKING_GRID_MINUTES","HG_BOOKING_NOTICE_HOURS","HG_BOOKING_BUFFER_MINUTES"];
@@ -99,6 +99,7 @@ test("company mode fails closed on bad Google data, errors or missing credential
   global.fetch=async(url)=>url.includes("oauth2")?{ok:true,json:async()=>({access_token:"t"})}:{ok:false};
   assert.equal((await ask("yi-cheng",day)).statusCode,503);
   delete process.env.HG_BOOKING_GOOGLE_PRIVATE_KEY;
+  process.env.HG_BOOKING_APPS_SCRIPT_URL="off";  // without keys the default script would take over
   const r=await ask("yi-cheng",day);
   assert.equal(r.statusCode,503);assert.equal(JSON.parse(r.body).error,"calendar_not_configured");
  }finally{global.fetch=original;restore();}

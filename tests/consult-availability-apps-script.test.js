@@ -48,6 +48,19 @@ test("busy times from Apps Script remove slots; no Google keys needed",async()=>
  }finally{global.fetch=original;restore();}
 });
 
+test("leftover per-advisor calendar env without keys still uses the company script",async()=>{
+ const restore=backup(),original=global.fetch;
+ try{
+  keys.forEach(k=>delete process.env[k]);process.env.HG_BOOKING_NOTICE_HOURS="0";
+  process.env.HG_BOOKING_YICHENG_BUSY_CALENDARS="leftover@example.invalid";
+  const day=nextMonday();const seen=[];
+  global.fetch=async(url)=>{seen.push(url);return{ok:true,json:async()=>({ok:true,busy:[]})};};
+  const r=await ask("yi-cheng",day);
+  assert.equal(r.statusCode,200);
+  assert.ok(seen[0].startsWith("https://script.google.com/macros/s/"));
+ }finally{global.fetch=original;restore();}
+});
+
 test("Apps Script errors or bad data fail closed; bad URL is not configured",async()=>{
  const restore=backup(),original=global.fetch;
  try{
