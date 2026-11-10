@@ -11,7 +11,7 @@ function createRes(){
  return res;
 }
 function envBackup(keys){const values=Object.fromEntries(keys.map(k=>[k,process.env[k]]));return ()=>keys.forEach(k=>{if(values[k]===undefined)delete process.env[k];else process.env[k]=values[k];});}
-const envKeys=["HG_BOOKING_GOOGLE_CLIENT_EMAIL","HG_BOOKING_GOOGLE_PRIVATE_KEY","HG_BOOKING_YICHENG_BUSY_CALENDARS","HG_BOOKING_YICHENG_HOURS_JSON","HG_BOOKING_SESSION_MINUTES","HG_BOOKING_GRID_MINUTES","HG_BOOKING_NOTICE_HOURS","HG_BOOKING_BUFFER_MINUTES"];
+const envKeys=["HG_BOOKING_GOOGLE_CLIENT_EMAIL","HG_BOOKING_GOOGLE_PRIVATE_KEY","HG_BOOKING_YICHENG_BUSY_CALENDARS","HG_BOOKING_YICHENG_HOURS_JSON","HG_BOOKING_SESSION_MINUTES","HG_BOOKING_GRID_MINUTES","HG_BOOKING_NOTICE_HOURS","HG_BOOKING_BUFFER_MINUTES","HG_BOOKING_COMPANY_CALENDAR","HG_BOOKING_YICHENG_TAGS","HG_BOOKING_MINGZONG_TAGS","HG_BOOKING_MINGZONG_HOURS_JSON","HG_BOOKING_HOURS_JSON","HG_BOOKING_APPS_SCRIPT_URL"];
 function tomorrow(){return new Date(Date.now()+8*3600000+86400000).toISOString().slice(0,10)}
 function weekHours(){return Object.fromEntries([0,1,2,3,4,5,6].map(x=>[x,[["09:00","12:00"]]]))}
 test("date input and offerings validation",()=>{
@@ -35,6 +35,7 @@ test("GET fails closed without credentials, and refuses unknown advisor",async()
  const restore=envBackup(envKeys);
  try{
   envKeys.forEach(k=>delete process.env[k]);
+  process.env.HG_BOOKING_APPS_SCRIPT_URL="off";
   const r=createRes();
   await handler({method:"GET",url:"/api/consult-availability?advisor=yi-cheng&from="+tomorrow(),headers:{origin:"https://homegoestate.github.io"}},r);
   assert.equal(r.statusCode,503);
